@@ -1,0 +1,653 @@
+===============================================================================
+WILDSORT - TRIDENI FOTOGRAFII Z EXPEDICE
+Navod k pouziti a popis procesu
+===============================================================================
+
+Verze dokumentu: 1.0
+Urceno pro: trideni velkych davek fotografii divokych zvirat (rady tisicu
+snimku) pred dalsi praci v Zoner Photo Studiu.
+
+
+-------------------------------------------------------------------------------
+OBSAH
+-------------------------------------------------------------------------------
+
+  1. K cemu system slouzi a co nedela
+  2. Zakladni princip
+  3. Co je potreba nainstalovat
+  4. Prvni spusteni
+  5. Popis procesu krok za krokem
+  6. Prace v rozhrani - klavesove zkratky
+  7. Zapis do Zoneru
+ 7B. Profily - rozdilna pravidla pro rozdilne situace
+ 7C. Zachranny rezim - prohlidka zavrzenych
+ 7D. Sceny - druha uroven nad seriemi
+ 7E. Souboj dvou nejlepsich
+ 7F. Kalibrace - nakolik se systemu da verit
+  8. Nastaveni a ladeni
+  9. Reseni problemu
+ 10. Zalohovani
+ 11. Omezeni, ktera je treba znat
+ 12. Kam system dal rozsirit
+
+
+-------------------------------------------------------------------------------
+1. K CEMU SYSTEM SLOUZI A CO NEDELA
+-------------------------------------------------------------------------------
+
+CO DELA:
+  - Nacte obsah karet, rozpozna duplicity mezi kartami
+  - Rozdeli snimky do serii podle casu porizeni (davky ze serioveho snimani)
+  - Najde v kazdem snimku zvire a zmeri ostrost PRAVE NA NEM
+  - V ramci kazde serie seradi snimky a navrhne ten nejlepsi
+  - Umozni rychle potvrdit nebo prepsat navrh z klavesnice
+  - Zapise hvezdicky a klicova slova do XMP souboru, ktere Zoner cte
+
+CO NEDELA:
+  - Nemaze fotky. Nikdy. Vyrazene se jen oznaci, pripadne presunou do
+    podslozky _rejected, odkud je lze kdykoliv vratit.
+  - Nezapisuje do RAW souboru. Originaly zustavaji bitove nedotcene.
+  - Nenahrazuje rozhodnuti fotografa. Rozhoduje, co ma smysl PROHLEDNOUT,
+    a v jakem poradi. Vyber dela clovek.
+  - Neposila nic na internet. Vse bezi lokalne na 127.0.0.1.
+
+
+-------------------------------------------------------------------------------
+2. ZAKLADNI PRINCIP
+-------------------------------------------------------------------------------
+
+Tri myslenky, na kterych cely system stoji:
+
+(A) MERIT OSTROST NA ZVIRETI, NE NA SNIMKU
+    Snimek s krasne ostrou travou v popredi a rozmazanym gepardem ma vysokou
+    celkovou ostrost. Bezny algoritmus by ho vyhodnotil jako nejlepsi ze serie.
+    WildSort proto nejdriv najde zvire a metriky pocita jen z jeho vyrezu.
+
+(B) POROVNAVAT UVNITR SERIE, NE PROTI PEVNEMU PRAHU
+    Absolutni prah ostrosti nefunguje. Hodnota, ktera je vyborna pro ptaka
+    v ranni mlze, je katastrofalni pro slona v poledni savane. Uvnitr jedne
+    serie jsou ale svetlo, objektiv i vzdalenost temer stejne, takze
+    porovnani snimku mezi sebou davat smysl. Pevny prah system pouziva jen
+    jako spodni podlahu na uplne zmetky.
+
+(C) ROZHODNUTI DRZET V DATABAZI, DO SOUBORU ZAPSAT AZ NAKONEC
+    Behem trideni se nic na disku nemeni. Vsechno je v SQLite databazi.
+    Az kdyz jsi s vysledkem spokojeny, spustis zapis do XMP. Do te doby
+    lze cokoliv zmenit, prehodnotit nebo cely proces zopakovat.
+
+
+-------------------------------------------------------------------------------
+3. CO JE POTREBA NAINSTALOVAT
+-------------------------------------------------------------------------------
+
+NUTNE:
+
+  Python 3.10 nebo novejsi
+    https://www.python.org/downloads/
+    Pri instalaci na Windows zaskrtni "Add Python to PATH".
+
+  Python knihovny
+    Ve slozce projektu spust:
+        pip install -r requirements.txt
+
+  ExifTool
+    https://exiftool.org
+    Windows: stahni "Windows Executable", rozbal, prejmenuj
+    exiftool(-k).exe na exiftool.exe a dej do slozky, ktera je na PATH
+    (napr. C:\Windows). Alternativne uprav EXIFTOOL_PATH v config.py na
+    plnou cestu.
+
+    Bez ExifToolu system nedokaze cist EXIF, vytahovat nahledy z RAWu ani
+    zapisovat vysledky. Je to jedina skutecne nezbytna externi soucast.
+
+VOLITELNE (doporucene):
+
+  MegaDetector - model pro detekci zvirat, zdarma
+    Soubor md_v5a.0.0.pt uloz do slozky models/
+    Zdroj: https://github.com/agentmorris/MegaDetector
+
+  PyTorch - nutny pro beh MegaDetectoru
+        pip install torch torchvision ultralytics
+
+    Bez MegaDetectoru system funguje, ale ostrost meri ze stredovych 60 %
+    snimku misto ze skutecneho zvirete. Vysledky jsou o poznani horsi
+    u snimku, kde subjekt neni uprostred.
+
+PLACENE: nic. Vsechno vyse je zdarma.
+
+
+-------------------------------------------------------------------------------
+4. PRVNI SPUSTENI
+-------------------------------------------------------------------------------
+
+  1. Otevri prikazovou radku ve slozce projektu
+  2. Spust:  python run.py
+  3. Skript ohlasi, zda nasel ExifTool a MegaDetector
+  4. Automaticky se otevre prohlizec na http://127.0.0.1:8756
+  5. Klikni na "Nacist slozku", zadej cestu ke snimkum a spust zpracovani
+
+Server ukoncis stiskem Ctrl+C v prikazove radce.
+
+DULEZITE: fotky nech na internim disku po celou dobu zpracovani. Cteni
+tisicu souboru pres USB zpracovani znatelne prodlouzi. Externi disk pouzij
+az na finalni zalohu.
+
+
+-------------------------------------------------------------------------------
+5. POPIS PROCESU KROK ZA KROKEM
+-------------------------------------------------------------------------------
+
+Pipeline ma sest kroku. Bezi automaticky za sebou, ale kazdy zapisuje svuj
+vysledek do databaze, takze zpracovani lze kdykoliv prerusit a spustit
+znovu - hotove kroky se preskoci.
+
+KROK 1 - IMPORT                                            (ingest.py)
+  Projde zadanou slozku vcetne podslozek a najde vsechny podporovane
+  soubory. U kazdeho spocita rychly hash (velikost + prvni a posledni blok
+  souboru) a precte EXIF davkovym volanim ExifToolu.
+
+  Rychly hash resi realny problem: dve karty ze dvou tel obsahuji soubory
+  IMG_0001.CR3 az IMG_9999.CR3. Bez hashe by se navzajem prepsaly nebo
+  zmatly. Cteni celeho 50MB RAWu jen kvuli duplicitam by pritom import
+  prodlouzilo o hodiny.
+
+  Nic se nekopiruje ani neupravuje. Vznikne jen zaznam v databazi.
+
+  Rychlost: cca 1-3 minuty na 10 000 snimku.
+
+KROK 2 - NAHLEDY                                             (proxy.py)
+  Z kazdeho RAWu se vytahne VESTAVENY JPEG nahled. Fotoaparat ho generuje
+  z plneho rozliseni, takze na posouzeni ostrosti je plnohodnotny.
+
+  Toto je nejdulezitejsi rozhodnuti z hlediska rychlosti. Uplne dekodovani
+  10 000 RAWu by trvalo hodiny; vytazeni vestaveneho nahledu jsou minuty.
+
+  Vznikaji dva soubory na fotku:
+    - proxy (delsi strana 1600 px) - pro detekci a prohlizeni
+    - thumb (delsi strana 400 px)  - pro mrizku a pas v rozhrani
+
+  Rychlost: cca 10-20 minut na 10 000 snimku.
+  Misto: cca 2-5 GB na 10 000 snimku.
+
+KROK 2B - ROZPOZNANI DUPLICIT
+  Duplicity se NEZAHAZUJI. Kdyz omylem naimportujes zalohu nebo druhou
+  kartu se stejnymi soubory, dozvis se to - snimek se zapise se stavem
+  'duplicate' a odkazem na original, dal se nezpracovava a v rozhrani se
+  neobjevi. Seznam najdes v exportnim dialogu.
+
+  Tise mizejici soubory jsou horsi nez hlaseni navic.
+
+KROK 3 - DETEKCE ZVIRETE                                    (detect.py)
+  MegaDetector najde v nahledu zvire a vrati jeho ohranicujici obdelnik.
+  Snimky, kde zadne zvire neni (zvire uteklo, spoust se spustila v kapse,
+  jen prach a kere), se oznaci priznakem "prazdny" a propadnou na konec
+  poradi. U expedicnich davek to typicky odstrani znatelnou cast materialu
+  jeste driv, nez se na ni fotograf podiva.
+
+  Bez modelu se pouzije stredovych 60 % snimku. Neni to detekce, jen
+  rozumny predpoklad.
+
+  Rychlost: na CPU cca 1-3 hodiny na 10 000 snimku, na GPU 10-20 minut.
+  Toto je zdaleka nejpomalejsi krok - nech ho bezet pres noc.
+
+KROK 4 - METRIKY                                           (metrics.py)
+  Na vyrezu zvirete se spocita:
+    - ostrost nejostrejsiho mista subjektu
+    - prumerny jas
+    - podil vypalenych svetel a zalitych stinu
+    - velikost subjektu vuci celemu snimku
+    - jak moc je subjekt uriznuty okrajem
+
+  Dve veci tady rozhoduji o pouzitelnosti celeho systemu:
+
+  MERI SE NA PLNEM ROZLISENI, NE NA NAHLEDU
+    Zvire se HLEDA na zmensenem nahledu (rychle), ale ostrost se MERI na
+    vyrezu z vestaveneho JPEGu v plnem rozliseni. Pri 1600 px vypada lehce
+    chybne zaostreny snimek stejne jako presne zaostreny - prave ten rozdil,
+    ktery uvnitr serie rozhoduje, by se zmensenim zahodil.
+
+    Docasny soubor se po kazdem snimku maze, na disku nepribyva nic navic.
+    Vypnout lze v config.py (SHARPNESS_USE_FULLRES).
+
+  BERE SE NEJOSTREJSI MISTO, NE PRUMER
+    Prumerna ostrost pres cele zvire je zavadejici: ostry bok a mekka hlava
+    vyjdou jako "dobre", pritom je to zmetek. U divociny obvykle rozhoduje
+    jedina vec - je ostre oko?
+
+    Vyrez se proto rozdeli na mrizku 6x6 a bere se prumer tri nejostrejsich
+    bunek. Ostry snimek ma aspon jedno velmi ostre misto, rozhybany nema
+    ostre ani jedno. Nepotrebuje to zadny dalsi model.
+
+    V odectech pod snimkem je uvedeno "ostrost" (nejostrejsi misto) - tohle
+    je cislo, podle ktereho se rozhoduje.
+
+KROK 5 - SKLADANI SCEN A SERII                            (grouping.py)
+  Dve urovne, protoze jedna nestaci:
+
+    SERIE  Davka ze serioveho snimani. Mezera nad 2 s zacina novou.
+           Uvnitr serie soutezi snimky mezi sebou.
+
+    SCENA  Cela situace. Mezera nad 3 minuty zacina novou. Uvnitr sceny
+           spolu soutezi jen VITEZOVE jednotlivych serii.
+
+  Kazde serii se zaroven navrhne profil hodnoceni z EXIF (viz 7B).
+
+  Rychlost: sekundy.
+
+KROK 6 - SKORE A NAVRH                                     (scoring.py)
+  Uvnitr kazde serie se hodnoty prevedou na rozsah 0-1 a slozi do skore
+  podle vah v config.py. Nejlepsi snimek serie dostane navrh 4 hvezdicky,
+  tesna druha 3, zbytek 1-2. Snimky pod podlahou ostrosti nebo bez zvirete
+  dostanou 1.
+
+  Vysledkem je razeni, ne rozsudek. Fotograf ho potvrzuje nebo prepisuje.
+
+
+-------------------------------------------------------------------------------
+6. PRACE V ROZHRANI - KLAVESOVE ZKRATKY
+-------------------------------------------------------------------------------
+
+Cely trideci cyklus se ovlada z klavesnice. U 10 000 snimku rozhoduje pocet
+stisku na fotku, ne pohodli mysi.
+
+  Sipka vpravo / vlevo    dalsi / predchozi snimek v serii
+  Sipka dolu / nahoru     dalsi / predchozi serie
+  Mezernik                dalsi serie
+  1 az 5                  pridel hvezdicky a oznac jako vybrany
+  0                       zrus hodnoceni
+  X                       vyrad snimek a posun se na dalsi
+  P                       oznac jako vybrany bez zmeny hvezdicek
+  Enter                   PRIJMI NAVRH CELE SERIE a jdi na dalsi
+  Ctrl+Z                  vrat posledni rozhodnuti
+  Z (nebo klik do fotky)  lupa 1:1 - skutecna velikost, vycentrovano
+                          na subjekt; druhy stisk lupu vypne
+  ?                       napoveda se vsemi zkratkami
+
+Vsechny akce jdou provest i mysi - hvezdicky, Vyradit a Prijmout serii
+jsou jako tlacitka vpravo dole. Klavesnice je ale nekolikrat rychlejsi.
+
+Pokud je nacteno vic slozek (karet), mezi nimi prepina roletka "Import"
+nahore v liste.
+
+V rezimu scen (kapitola 7D):
+
+  Sipky vlevo / vpravo    dalsi / predchozi nejlepsi zaber sceny
+  Sipky nahoru / dolu     predchozi / dalsi scena
+  1 az 5                  hvezdicky
+  Enter                   otevri serii, ze ktere snimek pochazi
+
+Pri souboji (kapitola 7E):
+
+  A nebo sipka vlevo      vyhrava levy snimek
+  B nebo sipka vpravo     vyhrava pravy snimek
+  Esc                     preskocit, rozhodnout pozdeji
+
+V zachrannem rezimu (kapitola 7C) plati jine klavesy:
+
+  Sipky                   dalsi / predchozi zavrzeny snimek
+  R                       zachran snimek (3 hvezdicky)
+  1 az 5                  zachran s danym poctem hvezdicek
+  X                       potvrd, ze snimek je opravdu k nicemu
+  Ctrl+Z                  vrat posledni rozhodnuti
+
+Ctrl+Z funguje vsude a vraci CELY posledni stisk, ne jednu vlastnost.
+Jedno stisknuti klavesy 5 zapise hvezdicky i priznak vyberu - Ctrl+Z
+vrati oboji najednou.
+
+Klavesa Enter je tezistem cele prace. Prijme navrh systemu pro celou serii
+najednou: nejlepsi snimek dostane 4 hvezdicky a priznak "vybrano", zbytek
+serie se oznaci k vyrazeni. Jedno stisknuti misto dvaceti.
+
+Realny pracovni rytmus vypada takto:
+  - podivas se na nabidnuty nejlepsi snimek serie (system na nej sam skoci)
+  - je-li navrh spravny, das Enter a jsi na dalsi serii
+  - neni-li, projdes sipkami serii a rozhodnes rucne
+
+Vetsina serii spadne do prvniho pripadu. Tim se 10 000 snimku smrskne na
+nekolik set skutecnych rozhodnuti.
+
+CO JE VIDET NA OBRAZOVCE:
+
+  Zluty ramecek ve snimku    kde system nasel zvire a na cem meril ostrost
+  Hrbet ostrosti (pod fotkou) sloupec pro kazdy snimek serie podle ostrosti
+                              subjektu. Vrchol krivky ukazuje, kde autofokus
+                              trefil. Zluty sloupec je navrh systemu, bily
+                              je snimek, na ktery se prave divas, cerveny
+                              je pod podlahou pouzitelnosti.
+  Pas nahledu                 cela serie, ramecek podle rozhodnuti
+  Odecty vlevo dole           ostrost absolutne i relativne v ramci serie,
+                              velikost subjektu, jas, prepal, ISO, navrh
+
+Udaj "v serii" v procentech je uzitecnejsi nez absolutni ostrost - rika,
+jak si snimek stoji vuci nejlepsimu snimku TEZE serie.
+
+
+-------------------------------------------------------------------------------
+7. ZAPIS DO ZONERU
+-------------------------------------------------------------------------------
+
+Az jsi hotov, klikni na "Zapsat do XMP". System pro kazdy snimek vytvori
+nebo aktualizuje sidecar soubor vedle originalu:
+
+    IMG_1234.CR3   originalni RAW, nedotceny
+    IMG_1234.xmp   hvezdicky, klicova slova
+
+Zapisuji se:
+  - hvezdicky 0 az 5 (XMP:Rating)
+  - klicove slovo WildSort:Pick u vybranych
+  - klicove slovo WildSort:Reject u vyrazenych
+  - klicove slovo WildSort:Empty u snimku bez zvirete
+  - tva vlastni klicova slova, pokud jsi je zadal
+
+Volitelne lze vyrazene snimky presunout do podslozky _rejected. Sidecar se
+presouva spolu s originalem. NIC SE NEMAZE - mazani je vedome rozhodnuti,
+ktere udelas rucne v Prizkumniku az potom, co jsi vysledek zkontroloval.
+
+V ZONERU POTOM:
+  1. Otevri slozku v modulu Spravce
+  2. Filtruj podle hodnoceni (hvezdicky) nebo klicoveho slova
+  3. Vyber s 4-5 hvezdickami jde do dalsi upravy
+
+OVER SI TOTO NA PETI SNIMCICH DRIV, NEZ PUSTIS CELOU DAVKU. Zpusob, jakym
+konkretni verze Zoneru cte sidecary u RAWu daneho vyrobce, se lisi.
+V Zoneru muze byt potreba povolit prace s XMP v nastaveni.
+
+
+-------------------------------------------------------------------------------
+7B. PROFILY - ROZDILNA PRAVIDLA PRO ROZDILNE SITUACE
+-------------------------------------------------------------------------------
+
+Jedna sada parametru pro celou expedici nefunguje. Let ptaka, klidny
+portret a zamerne rozmazany svenk potrebuji uplne jina pravidla, protoze
+to, co je u jednoho vada, je u druheho zamer.
+
+Kazda serie proto muze mit vlastni PROFIL. Prepneš ho v roletce vpravo
+dole ("Profil serie"). Serie se prepocita okamzite, behem milisekund, a
+hned vidis nove poradi. Zkousej naslepo - nic se tim nemuze pokazit.
+
+DULEZITE: zmena profilu prepocita jen NAVRH SYSTEMU. Hvezdicky a priznaky,
+ktere jsi uz priradil, zustavaji nedotcene.
+
+VESTAVENE PROFILY (soubor profiles.json):
+
+  standard        Vychozi. Technicka kvalita, zvire rozumne velke v zaberu.
+
+  let_ptaka       Rychly subjekt, casto maly a u okraje. Velikost ani
+                  umisteni se netrestaji. Podlaha ostrosti je vyssi,
+                  protoze u letu je rozmaz obvykle chyba, ne zamer.
+
+  klidny_savec    Staticky subjekt. Vetsi duraz na velikost v zaberu
+                  a cistou expozici - u portretu je na to cas.
+
+  spatne_svetlo   Svitani, mlha, hustý porost. Nizka podlaha ostrosti,
+                  expozice se skoro netresta.
+
+  umelecky        Zvlastni rezim - SYSTEM SE VZDA HODNOCENI. Vsechny
+                  snimky dostanou 3 hvezdicky, poradi zustane podle casu
+                  a nic se automaticky nevyrazuje.
+
+PROC MA UMELECKY PROFIL VYPNUTE RAZENI
+
+Je to jediny poctivy postup. Kdyby se v tomhle rezimu radilo podle
+ostrosti se sniženými vahami, zamerne rozmazany snimek by stejne vzdy
+skoncil posledni - prave proto, ze je zamerne rozmazany. Predstirat, ze
+algoritmus umi seradit umelecky zamer, by bylo horsi nez priznat, ze
+neumi. V tomhle rezimu system jen zajisti, ze se ti kazdy snimek dostane
+pred oci, a rozhodnuti necha na tobe.
+
+VLASTNI PROFILY
+
+Soubor profiles.json muzes volne rozsirit. Format:
+
+    "muj_profil": {
+      "label": "Nazev v rozhrani",
+      "note": "Kratky popis, zobrazi se pri prepnuti",
+      "sharpness_floor": 10.0,
+      "min_subject_area": 0.003,
+      "weights": {
+        "sharpness":    1.00,
+        "subject_size": 0.20,
+        "exposure":     0.15,
+        "centering":    0.05
+      }
+    }
+
+Volitelny klic "no_ranking": true vypne razeni uplne (jako u profilu
+umelecky).
+
+Soubor se cte za behu - po ulozeni staci prepnout profil v rozhrani,
+server restartovat nemusis.
+
+Vyznam parametru:
+  sharpness_floor   pod touto ostrosti jde snimek automaticky na konec.
+                    Nastav 0 pro zamerny rozmaz.
+  min_subject_area  minimalni podil plochy zvirete. Sniz pro male subjekty
+                    v siroke krajine.
+  sharpness         vaha ostrosti. Obvykle nech na 1.0.
+  subject_size      jak moc zvyhodnit velky subjekt. Dej 0 u minimalismu.
+  exposure          jak moc trestat prepal a zalite stiny. Dej 0 u siluet.
+  centering         jak moc trestat subjekt u okraje. Dej 0, kdyz s
+                    prazdnym prostorem pracujes zamerne.
+
+
+-------------------------------------------------------------------------------
+7C. ZACHRANNY REZIM - PROHLIDKA ZAVRZENYCH
+-------------------------------------------------------------------------------
+
+Prepinac "Zavrzene" v levem hornim rohu prepne seznam ze serii na plochy
+seznam zavrzenych snimku napric celou expedici.
+
+RAZENO JE OD NEJHORSIHO. To neni prehmat. Prave na dne poradi konci to,
+co algoritmus z principu neumi posoudit: zamerny pohybovy rozmaz, silueta
+v protisvetle, detail srsti nebo oka, na kterem detektor zvire nenajde,
+minimalisticka kompozice s malym subjektem. Kdyby se seznam radil od
+nejlepsiho, tyhle snimky by skoncily na konci, kam se nikdo nedostane.
+
+U kazdeho snimku je uveden duvod zavrzeni: rozmaz, bez zvirete, nizke
+skore. Podle nej rychle poznas, jestli slo o chybu algoritmu nebo o
+skutecny zmetek.
+
+Prace v tomhle rezimu:
+  R nebo 1-5    snimek se vytahne zpet mezi vybrane
+  X             potvrdis, ze je opravdu k nicemu, a zmizi ze seznamu
+  Sipky         pohyb po seznamu
+
+Snimek oznaceny klavesou X se NIKAM NEMAZE - jen se prestane nabizet.
+
+DOPORUCENY POSTUP: zachranny rezim projdi VZDY driv, nez cokoliv smazes.
+U expedice s vyraznym umeleckym zamerem to neni formalita. Pocitej, ze
+nekolik nejlepsich snimku cele cesty bude prave tam.
+
+
+
+
+Vse podstatne je v souboru config.py, s komentarem u kazde hodnoty.
+
+Nejcasteji budes menit:
+
+  BURST_GAP_SECONDS = 2.0
+      Mezera, ktera oddeluje serie. Zvys, pokud se ti jedna dlouha akce
+      rozpada na prilis mnoho serii. Sniz, pokud se ti do jedne serie
+      slevaji dva ruzne zabery.
+
+  HARD_SHARPNESS_FLOOR = 15.0
+      Spodni podlaha ostrosti. Snimky pod ni jdou automaticky na konec
+      poradi. Zvys opatrne - lepe nechat prolezt zmetek nez vyradit
+      unikatni moment.
+
+  SCORE_WEIGHTS
+      Vahy jednotlivych metrik. Chces-li vic upredostnovat zabery, kde je
+      zvire velke v zaberu, zvys "subject_size".
+
+  SCENE_GAP_SECONDS = 180.0
+      Pauza, ktera oddeluje sceny. Viz kapitola 7D.
+
+  DUEL_THRESHOLD = 0.05
+      Jak tesne musi byt prvni dva, aby se nabidl souboj. Viz 7E.
+
+  SHARPNESS_GRID = 6  /  SHARPNESS_TOP_CELLS = 3
+      Jemnost mrizky pro mereni ostrosti a kolik nejostrejsich bunek
+      zprumerovat. Vyssi TOP_CELLS je odolnejsi vuci sumu, ale mene
+      citlivy na male ostre detaily jako oko.
+
+  SHARPNESS_USE_FULLRES = True
+      Merit ostrost na plnem rozliseni. Vypnout jen tehdy, kdyz je
+      analyza neunosne pomala a smiris se s horsi presnosti.
+
+  AUTO_PROFILE = True
+      Navrhovat profil z EXIF. Vypnutim dostanou vsechny serie
+      "standard".
+
+  PROXY_LONG_EDGE = 1600
+      Velikost nahledu. Sniz na 1200, pokud setris misto; zvys na 2000,
+      pokud chces posuzovat ostrost detailneji (za cenu mista a casu).
+
+PO ZMENE NASTAVENI staci prepocitat, ne importovat znovu: v rozhrani
+zavolej prepocet, nebo z prikazove radky:
+
+    python -c "import grouping, scoring; grouping.run(); scoring.run()"
+
+Trvá to sekundy a rozhodnuti fotografa zustanou zachovana.
+
+
+-------------------------------------------------------------------------------
+9. RESENI PROBLEMU
+-------------------------------------------------------------------------------
+
+"ExifTool nenalezen"
+    Neni na PATH. Bud ho tam pridej, nebo v config.py nastav
+    EXIFTOOL_PATH na plnou cestu, napr. r"C:\Tools\exiftool.exe".
+
+"V RAWu nebyl nalezen vestaveny nahled"
+    Nektere starsi nebo neobvykle formaty vestaveny JPEG neobsahuji.
+    Dotcene snimky maji v databazi vyplneny sloupec error a proste se
+    preskoci. Zbytek davky bezi dal.
+
+Zpracovani trva neumerne dlouho
+    Nejcastejsi pricina: fotky jsou na externim disku. Presun je na
+    interni. Druha pricina: MegaDetector bezi na CPU - to je normalni,
+    nech to bezet pres noc.
+
+Detekce oznacuje jako "prazdne" snimky, kde zvire je
+    Zvire je prilis male, prilis daleko nebo maskovane. Sniz
+    DETECTION_CONFIDENCE_MIN v config.py, nebo prepni na variantu modelu
+    md_v5b.
+
+Rozhrani se neotevre
+    Zkontroluj, ze na portu 8756 nic jineho nebezi. Port zmenis
+    v config.py (SERVER_PORT).
+
+Databaze se rozbila / chci zacit znovu
+    Smaz slozku workspace/. Fotky na disku to nijak neovlivni, ale ztratis
+    vsechna rozhodnuti. Zalohuj si workspace/wildsort.db driv.
+
+Zoner nevidi hvezdicky
+    Over v nastaveni Zoneru, ze cte XMP sidecary. Zkontroluj, ze soubor
+    .xmp skutecne vznikl vedle RAWu a ma stejny nazev.
+
+
+-------------------------------------------------------------------------------
+10. ZALOHOVANI
+-------------------------------------------------------------------------------
+
+Co zalohovat a v jakem poradi dulezitosti:
+
+  1. Same fotky (RAW soubory)
+       Nenahraditelne. Externi disk plus ideálne druha kopie jinde.
+       Karty nemaz, dokud neexistuje overena zaloha.
+
+  2. Soubory .xmp
+       Nese vsechna rozhodnuti. Male, ale kdyz zmizi, delas trideni znovu.
+       Zalohuj spolu s fotkami - lezi ve stejne slozce.
+
+  3. profiles.json
+       Tve vlastni profily hodnoceni. Maly textovy soubor, ale kdyz si
+       vyladis vlastni sadu, nechces o ni prijit.
+
+  4. workspace/wildsort.db
+       Databaze s metrikami a historii rozhodnuti. Radove desitky MB.
+       Zaloha se vyplati - obsahuje take trenovaci data pro budouci
+       model tveho osobniho vkusu (viz bod 12).
+
+  5. workspace/proxy/
+       Nahledy. Zalohovat NENI treba, jdou kdykoliv vygenerovat znovu.
+       Klidne nekolik GB, ktera muzes na zaloze usetrit.
+
+Externi disk s jedinou kopii RAWu je jediny bod selhani. Druha kopie neni
+luxus, ale soucast pracovniho postupu.
+
+
+-------------------------------------------------------------------------------
+11. OMEZENI, KTERA JE TREBA ZNAT
+-------------------------------------------------------------------------------
+
+Ostrost neni kvalita. Algoritmus mnohem lepe pozna, ktery snimek serie je
+technicky nejlepsi, nez ktery snimek je dobra fotografie. Kompozice,
+vyraz zvirete, svetlo, okamzik - to nemeri nic. Proto system rozhoduje
+o PORADI, ne o vyberu.
+
+Umelecky zamer cte jako vadu. Zamerny pohybovy rozmaz, silueta v
+protisvetle, minimalisticka kompozice s malym subjektem u okraje, abstraktni
+detail - to vse dostane nizke skore, protoze to porusuje prave ta pravidla,
+ktera algoritmus meri. Castecne to resi profil "umelecky" (kapitola 7B) a
+zachranny rezim (kapitola 7C), ale plne se to vyresit neda. Ber to jako
+danou vlastnost, ne jako chybu k odladeni.
+
+Rozmazany snimek muze byt ten nejcennejsi. Jediny zaber loveckeho utoku,
+i technicky vadny, prebije stovku ostrych portretu lezici lvice. Proto se
+nikdy nic nemaze automaticky.
+
+Detekce se plete. Podobne zbarvena zvirata, castecne zakryta tela, mladata
+vedle matky. Klicova slova s druhem ber jako navrh, ne jako fakt.
+
+Vestaveny nahled neni RAW. Ma jinou ostrost nez vysledek po vyvolani.
+Na porovnani snimku uvnitr serie to nevadi - vsechny jsou zpracovane
+stejne. Na absolutni posouzeni finalni kvality ano.
+
+Automaticky navrh profilu je jen odhad. Pravidla ctou cas zavěrky,
+ohnisko a ISO - to staci na typicke pripady, ale nepozna zamer, ktery se
+v nastaveni fotoaparatu neprojevi. Navrh je vzdy jen vychozi bod; roletka
+profilu je tam proto, aby se dal prepsat.
+
+Kalibrace meri shodu, ne kvalitu. Rika, jak casto se system trefil do TVE
+volby - ne jestli byla tvoje volba dobra. Je to merítko souladu, ne vkusu.
+
+Serie se poznaji podle casu, ne podle obsahu. Dva ruzne zabery porizene
+tesne za sebou skonci v jedne serii. Pri manualnim prochazeni je to hned
+videt a lze rozhodnout jinak.
+
+
+-------------------------------------------------------------------------------
+12. KAM SYSTEM DAL ROZSIRIT
+-------------------------------------------------------------------------------
+
+Databaze si pamatuje kazde rozhodnuti fotografa v tabulce decisions - co
+bylo navrhnuto a co bylo skutecne vybrano. To je po nekolika expedicich
+trenovaci sada tvyho vlastniho vkusu.
+
+Nasledny model by pak nenavrhoval "ostre fotky", ale "fotky, jake si
+obvykle vybiras". To je zasadni rozdil: obecna kvalita je merítko, osobni
+vyber je styl.
+
+Dalsi smery, ktere dava smysl pridat az potom, co zaklad odslouzi
+jednu skutecnou expedici:
+
+  - Klasifikace druhu (SpeciesNet, BioCLIP) pro automaticka klicova slova
+  - Detekce oci a mereni ostrosti primo na nich. Mrizka s maximem (krok 4)
+    se tomu blizi levne, ale skutecna detekce oka by byla presnejsi.
+  - Rozpoznani otevrenych vs. zavrenych oci
+  - Prevzeti GPS z EXIF a doplneni nazvu lokality
+  - Export vyberu do samostatne slozky pro klienta
+  - Rezim dvou monitoru: serie na jednom, detail na druhem
+
+Trenovaci data uz se sbiraji: tabulka decisions zaznamenava kazdy tvuj
+stisk, a kalibrace (7F) z nich uz ted pocita, nakolik se system trefuje.
+Az bude serii dost, jsou to hotova data k trenovani.
+
+Nedoporucuji stavet nic z toho predem. Az prvni ostry provoz ukaze, kde
+skutecne ubiha cas, a to obvykle neni tam, kde se to ceka.
+
+
+===============================================================================
+KONEC DOKUMENTU
+===============================================================================

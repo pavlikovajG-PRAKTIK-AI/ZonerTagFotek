@@ -1,0 +1,13 @@
+# Zaklad - nutne
+fastapi>=0.110
+uvicorn>=0.27
+pydantic>=2.0
+opencv-python-headless>=4.9
+numpy>=1.24
+Pillow>=10.0
+
+# Volitelne - jen pro detekci zvirat pomoci MegaDetectoru.
+# Bez nich systém funguje, jen se ostrost meri ze stredu snimku.
+# torch>=2.0
+# torchvision>=0.15
+# ultralytics>=8.0

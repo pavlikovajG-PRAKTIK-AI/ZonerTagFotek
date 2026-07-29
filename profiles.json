@@ -1,0 +1,67 @@
+{
+  "standard": {
+    "label": "Standardni",
+    "note": "Vychozi nastaveni. Technicka kvalita, zvire rozumne velke v zaberu.",
+    "sharpness_floor": 15.0,
+    "min_subject_area": 0.005,
+    "weights": {
+      "sharpness": 1.00,
+      "subject_size": 0.25,
+      "exposure": 0.20,
+      "centering": 0.10
+    }
+  },
+
+  "let_ptaka": {
+    "label": "Let ptaka",
+    "note": "Rychly subjekt, casto maly v zaberu a u okraje. Velikost ani umisteni se netrestaji.",
+    "sharpness_floor": 20.0,
+    "min_subject_area": 0.001,
+    "weights": {
+      "sharpness": 1.00,
+      "subject_size": 0.05,
+      "exposure": 0.15,
+      "centering": 0.00
+    }
+  },
+
+  "klidny_savec": {
+    "label": "Klidny savec",
+    "note": "Staticky subjekt. Vetsi duraz na velikost v zaberu a cistou expozici.",
+    "sharpness_floor": 25.0,
+    "min_subject_area": 0.01,
+    "weights": {
+      "sharpness": 1.00,
+      "subject_size": 0.40,
+      "exposure": 0.30,
+      "centering": 0.15
+    }
+  },
+
+  "spatne_svetlo": {
+    "label": "Sero a mlha",
+    "note": "Svitani, mlha, hustý porost. Nizka podlaha ostrosti, expozice se skoro netresta.",
+    "sharpness_floor": 5.0,
+    "min_subject_area": 0.003,
+    "weights": {
+      "sharpness": 1.00,
+      "subject_size": 0.20,
+      "exposure": 0.05,
+      "centering": 0.05
+    }
+  },
+
+  "umelecky": {
+    "label": "Umelecky zamer",
+    "note": "Zamerny rozmaz, silueta, minimalismus, detail. Systém neradi ani nic nevyrazuje - vsechny snimky dostanou 3 hvezdicky a poradi zustane podle casu. Rozhoduje oko, ne algoritmus.",
+    "no_ranking": true,
+    "sharpness_floor": 0.0,
+    "min_subject_area": 0.0,
+    "weights": {
+      "sharpness": 1.00,
+      "subject_size": 0.00,
+      "exposure": 0.00,
+      "centering": 0.00
+    }
+  }
+}

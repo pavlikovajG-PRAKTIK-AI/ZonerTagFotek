@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WildSort — třídění fotografií</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23E8B84B'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%230F1215'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <h1>WildSort</h1>
+    <span class="detector" id="detector" title="Stav detektoru zvířat">—</span>
+  </div>
+
+  <div class="bar-mid">
+    <label class="root-pick" id="root-wrap" hidden>
+      <span>Import</span>
+      <select id="root-select" title="Přepnout mezi načtenými složkami"></select>
+    </label>
+    <div class="job" id="job">
+      <div class="job-row">
+        <span class="job-step" id="job-step" hidden></span>
+        <span class="job-msg" id="job-msg">Připraveno</span>
+      </div>
+      <div class="job-track" id="job-track" hidden><div class="job-fill" id="job-fill"></div></div>
+    </div>
+  </div>
+
+  <div class="bar-actions">
+    <span class="trust" id="trust" title="Shoda tvého výběru s návrhem systému">—</span>
+    <button class="btn icon-btn" id="btn-help" title="Nápověda a klávesové zkratky (?)">?</button>
+    <button class="btn" id="btn-import">📂 Načíst složku</button>
+    <button class="btn solid" id="btn-export">💾 Zapsat do XMP</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <aside class="series" aria-label="Seznam sérií">
+    <div class="mode-switch" role="tablist">
+      <button class="mode" id="mode-scenes" role="tab" title="Nejlepší záběr každé situace — nejrychlejší cesta expedicí">
+        Scény <span class="mode-count" id="count-scenes"></span>
+      </button>
+      <button class="mode active" id="mode-bursts" role="tab" title="Dávky ze sériového snímání">
+        Série <span class="mode-count" id="count-bursts"></span>
+      </button>
+      <button class="mode" id="mode-salvage" role="tab" title="Záchranný režim — projdi zavržené, než cokoliv smažeš">
+        Zavržené <span class="mode-count" id="count-salvage"></span>
+      </button>
+    </div>
+    <div class="series-head">
+      <span id="list-caption">Podle času</span>
+      <label class="toggle">
+        <input type="checkbox" id="filter-unreviewed"> jen nevyřízené
+      </label>
+    </div>
+    <ul class="series-list" id="series-list"></ul>
+    <div class="series-foot" id="series-foot" hidden>
+      <div class="foot-row">
+        <span id="foot-label">—</span>
+        <span id="foot-nums">—</span>
+      </div>
+      <div class="foot-track"><div class="foot-fill" id="foot-fill"></div></div>
+    </div>
+  </aside>
+
+  <section class="stage">
+
+    <div class="frame" id="frame">
+      <!-- Uvítání: co systém dělá a jak začít. Zmizí, jakmile existují data. -->
+      <div class="welcome" id="welcome">
+        <div class="welcome-mark" aria-hidden="true"></div>
+        <h2>Třídění fotografií z expedice</h2>
+        <p class="welcome-lead">Načti složku s fotkami — WildSort najde v každém snímku zvíře,
+           změří ostrost <em>přímo na něm</em>, seskupí dávky do sérií a v každé
+           navrhne nejlepší snímek. Ty jen potvrzuješ nebo přepisuješ.</p>
+        <ol class="welcome-steps">
+          <li><b>Načti složku</b> — nic se nekopíruje ani nemaže, vzniknou jen náhledy a databáze</li>
+          <li><b>Nech proběhnout zpracování</b> — u velkých dávek klidně přes noc</li>
+          <li><b>Projdi série klávesnicí</b> — <kbd>Enter</kbd> přijme návrh celé série najednou</li>
+          <li><b>Zapiš do XMP</b> — hvězdičky a klíčová slova, která Zoner přečte</li>
+        </ol>
+        <button class="btn solid big" id="welcome-import">📂 Načíst složku s fotkami</button>
+        <p class="welcome-note">Originály zůstávají bitově nedotčené. Vše běží lokálně,
+           nic neodchází na internet.</p>
+      </div>
+
+      <div class="frame-empty" id="frame-empty" hidden></div>
+      <img id="main-img" alt="Aktuální snímek">
+      <div class="subject-box" id="subject-box" hidden title="Zde systém našel zvíře a měřil ostrost"></div>
+      <div class="frame-tags" id="frame-tags"></div>
+      <div class="zoom-hint" id="zoom-hint" hidden>Klik nebo <kbd>Z</kbd> = lupa 1:1</div>
+    </div>
+
+    <!-- Souboj: když jsou dva nejlepší tak blízko, že algoritmus mezi nimi
+         rozhodnout neumí, ukáže je vedle sebe místo předstírané jistoty. -->
+    <div class="duel" id="duel" hidden>
+      <div class="duel-head">
+        <span>⚖ Dva nejlepší jsou téměř shodné — rozhodni ty.</span>
+        <button class="btn ghost" id="duel-skip">Přeskočit <kbd>Esc</kbd></button>
+      </div>
+      <div class="duel-pair">
+        <figure class="duel-side" id="duel-a">
+          <img alt="Kandidát A">
+          <figcaption><kbd>A</kbd> <span class="duel-name"></span><span class="duel-sh"></span></figcaption>
+        </figure>
+        <figure class="duel-side" id="duel-b">
+          <img alt="Kandidát B">
+          <figcaption><kbd>B</kbd> <span class="duel-name"></span><span class="duel-sh"></span></figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <!-- Hřbet ostrosti: sloupec pro každý snímek série. Vrchol křivky
+         ukazuje, kde autofokus trefil. -->
+    <div class="ridge" id="ridge" aria-label="Průběh ostrosti v sérii" title="Ostrost subjektu napříč sérií — žlutý sloupec je návrh systému"></div>
+
+    <div class="strip" id="strip"></div>
+
+    <div class="readout">
+      <dl class="metrics" id="metrics"></dl>
+
+      <div class="right-controls">
+        <!-- Tlačítka pro práci myší; klávesnice zůstává hlavní cestou -->
+        <div class="actions" id="actions-bursts">
+          <div class="star-row" id="star-row" title="Hvězdičky 1–5">
+            <button class="star-btn" data-star="1">★</button>
+            <button class="star-btn" data-star="2">★</button>
+            <button class="star-btn" data-star="3">★</button>
+            <button class="star-btn" data-star="4">★</button>
+            <button class="star-btn" data-star="5">★</button>
+          </div>
+          <button class="btn danger" id="btn-reject" title="Vyřadit snímek (X)">✕ Vyřadit</button>
+          <button class="btn solid" id="btn-accept" title="Přijmout návrh celé série (Enter)">✓ Přijmout sérii</button>
+        </div>
+        <div class="actions" id="actions-salvage" hidden>
+          <button class="btn ok" id="btn-rescue" title="Zachránit snímek (R)">↩ Zachránit</button>
+          <button class="btn danger" id="btn-dismiss" title="Potvrdit vyřazení (X)">✕ Opravdu pryč</button>
+        </div>
+        <div class="actions" id="actions-scenes" hidden>
+          <button class="btn" id="btn-open-burst" title="Otevřít sérii, ze které snímek pochází (Enter)">Otevřít sérii ⏎</button>
+        </div>
+
+        <label class="profile-pick" id="profile-wrap" hidden>
+          <span>Profil série</span>
+          <select id="profile-select" title="Pravidla hodnocení pro tuto sérii — změna nic nepokazí, přepočítá se jen návrh"></select>
+        </label>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<dialog class="sheet" id="import-sheet">
+  <h2>Načíst složku</h2>
+  <p>Zadej cestu ke složce s fotkami (RAW i JPEG, včetně podsložek). Nic se
+     nekopíruje ani neupravuje — vytvoří se jen náhledy a záznamy v databázi.</p>
+  <label>Cesta ke složce
+    <input type="text" id="import-path" placeholder="D:\Kena2026\karta1" spellcheck="false">
+  </label>
+  <label>Popis (nepovinný)
+    <input type="text" id="import-label" placeholder="Keňa 2026 — karta 1">
+  </label>
+  <div class="recent" id="recent-roots" hidden>
+    <span class="recent-cap">Dříve načtené:</span>
+    <div id="recent-list"></div>
+  </div>
+  <p class="note">Fotky nech během zpracování na interním disku — čtení tisíců
+     souborů přes USB vše znatelně zpomalí. Detekce zvířat je nejpomalejší krok;
+     u velkých dávek ji nech běžet přes noc.</p>
+  <div class="sheet-actions">
+    <button class="btn ghost" id="import-cancel">Zrušit</button>
+    <button class="btn solid" id="import-go">Spustit zpracování</button>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="export-sheet">
+  <h2>Zapsat do XMP</h2>
+  <div class="summary" id="export-summary"></div>
+  <p class="note" id="export-trust"></p>
+  <details class="dupes" id="export-dupes" hidden>
+    <summary id="export-dupes-cap"></summary>
+    <ul id="export-dupes-list"></ul>
+  </details>
+  <label class="check">
+    <input type="checkbox" id="export-move">
+    Přesunout vyřazené do podsložky <code>_rejected</code>
+  </label>
+  <p class="note">Nic se nemaže. Do RAW souborů se nezapisuje — hodnocení jde do
+     sidecar souborů <code>.xmp</code> vedle originálů, které Zoner čte.
+     Ověř si výsledek nejdřív na pár snímcích.</p>
+  <div class="sheet-actions">
+    <button class="btn ghost" id="export-cancel">Zrušit</button>
+    <button class="btn solid" id="export-go">Zapsat</button>
+  </div>
+</dialog>
+
+<dialog class="sheet help" id="help-sheet">
+  <h2>Klávesové zkratky</h2>
+  <div class="help-cols">
+    <section>
+      <h3>Série <span class="help-sub">(hlavní práce)</span></h3>
+      <table>
+        <tr><td><kbd>←</kbd><kbd>→</kbd></td><td>snímek v sérii</td></tr>
+        <tr><td><kbd>↓</kbd><kbd>↑</kbd></td><td>další / předchozí série</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td><b>přijmout návrh celé série</b></td></tr>
+        <tr><td><kbd>1</kbd>–<kbd>5</kbd></td><td>hvězdičky + označit jako vybraný</td></tr>
+        <tr><td><kbd>0</kbd></td><td>zrušit hodnocení</td></tr>
+        <tr><td><kbd>X</kbd></td><td>vyřadit a jít dál</td></tr>
+        <tr><td><kbd>P</kbd></td><td>vybrat bez změny hvězdiček</td></tr>
+        <tr><td><kbd>Mezerník</kbd></td><td>další série</td></tr>
+      </table>
+    </section>
+    <section>
+      <h3>Scény</h3>
+      <table>
+        <tr><td><kbd>←</kbd><kbd>→</kbd></td><td>nejlepší záběr situace</td></tr>
+        <tr><td><kbd>↓</kbd><kbd>↑</kbd></td><td>další / předchozí scéna</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>otevřít sérii snímku</td></tr>
+      </table>
+      <h3>Zavržené</h3>
+      <table>
+        <tr><td><kbd>R</kbd> / <kbd>1</kbd>–<kbd>5</kbd></td><td>zachránit</td></tr>
+        <tr><td><kbd>X</kbd></td><td>potvrdit vyřazení</td></tr>
+      </table>
+      <h3>Souboj</h3>
+      <table>
+        <tr><td><kbd>A</kbd> / <kbd>B</kbd></td><td>vítěz levý / pravý</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>rozhodnout později</td></tr>
+      </table>
+    </section>
+    <section>
+      <h3>Všude</h3>
+      <table>
+        <tr><td><kbd>Ctrl</kbd><kbd>Z</kbd></td><td>vrátit poslední rozhodnutí</td></tr>
+        <tr><td><kbd>Z</kbd> / klik</td><td>lupa 1:1</td></tr>
+        <tr><td><kbd>?</kbd></td><td>tato nápověda</td></tr>
+      </table>
+      <h3>Pracovní rytmus</h3>
+      <p class="help-tip">Systém skočí na navržený nejlepší snímek série.
+         Souhlasíš-li → <kbd>Enter</kbd> a jsi na další sérii.
+         Nesouhlasíš-li → projdi šipkami a rozhodni ručně.
+         Většina sérií spadne do prvního případu.</p>
+      <p class="help-tip">Než cokoliv smažeš, projdi záložku <b>Zavržené</b> —
+         řadí se od nejhoršího, protože právě tam končí záměrný rozmaz,
+         siluety a minimalismus, které algoritmus neumí posoudit.</p>
+    </section>
+  </div>
+  <div class="sheet-actions">
+    <button class="btn solid" id="help-close">Zavřít</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
