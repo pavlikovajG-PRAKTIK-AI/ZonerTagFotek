@@ -28,6 +28,19 @@ app = FastAPI(title="WildSort")
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
+# Sloupce, ktere se do prohlizece neposilaji. Obrazovy popis (content) je
+# binarni blob pro rozpoznani scen - JSON ho neumi zakodovat a rozhrani ho
+# k nicemu nepotrebuje. Kazdy radek fotky musi projit photo_json().
+HIDDEN_PHOTO_COLUMNS = ("content",)
+
+
+def photo_json(row):
+    """Radek fotky pripraveny k odeslani do prohlizece."""
+    data = dict(row)
+    for column in HIDDEN_PHOTO_COLUMNS:
+        data.pop(column, None)
+    return data
+
 
 # ---------------------------------------------------------------------------
 # Modely pozadavku
@@ -227,7 +240,7 @@ def burst_detail(burst_id: int):
         photos = conn.execute(
             "SELECT * FROM photos WHERE burst_id=? ORDER BY capture_time, filename",
             (burst_id,)).fetchall()
-        return {"burst": dict(b), "photos": [dict(p) for p in photos]}
+        return {"burst": dict(b), "photos": [photo_json(p) for p in photos]}
 
 
 @app.post("/api/decision")
@@ -396,7 +409,7 @@ def rejected(root_id: int | None = None, limit: int = 500, include_empty: bool =
             f"SELECT * FROM photos {where} ORDER BY score ASC, sharpness ASC LIMIT ?",
             params + [limit],
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [photo_json(r) for r in rows]
 
 
 @app.post("/api/rescue")
@@ -483,7 +496,7 @@ def scene_detail(scene_id: int):
             "FROM photos p JOIN bursts b ON b.best_photo_id = p.id "
             "WHERE b.scene_id=? ORDER BY p.scene_rank", (scene_id,)
         ).fetchall()
-        return {"scene": dict(scene), "winners": [dict(w) for w in winners]}
+        return {"scene": dict(scene), "winners": [photo_json(w) for w in winners]}
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +516,7 @@ def duel(burst_id: int):
         photos = conn.execute(
             "SELECT * FROM photos WHERE id IN (?,?)", (b["duel_a"], b["duel_b"])
         ).fetchall()
-        by_id = {p["id"]: dict(p) for p in photos}
+        by_id = {p["id"]: photo_json(p) for p in photos}
         return {"duel": {"a": by_id.get(b["duel_a"]), "b": by_id.get(b["duel_b"])}}
 
 
