@@ -201,6 +201,24 @@
   </div>
 </dialog>
 
+<dialog class="sheet" id="organize-sheet">
+  <h2>Roztřídit do složek podle scén</h2>
+  <div class="summary" id="organize-summary"></div>
+  <p class="note" id="organize-detail"></p>
+  <details class="dupes" id="organize-list" hidden>
+    <summary id="organize-list-cap"></summary>
+    <ul id="organize-list-items"></ul>
+  </details>
+  <p class="note"><b>Toto je jediná akce, která hýbe tvými originály.</b>
+     Nic se nemaže ani nepřepisuje — soubory se jen přesunou do podsložek
+     a XMP sidecar jde s nimi. Snímky, které už v podsložce máš
+     (pojmenované podle zvířat), zůstanou na místě.</p>
+  <div class="sheet-actions">
+    <button class="btn ghost" id="organize-cancel">Zrušit</button>
+    <button class="btn solid" id="organize-go">Přesunout</button>
+  </div>
+</dialog>
+
 <dialog class="sheet" id="tools-sheet">
   <h2>Nástroje</h2>
 
@@ -221,6 +239,19 @@
             se nemažou, jen tvá rozhodnutí.</span>
     </div>
     <button class="btn danger" id="tool-reset-root">Zrušit vše</button>
+  </div>
+
+  <hr class="tool-sep">
+
+  <div class="tool">
+    <div class="tool-text">
+      <b>Roztřídit do složek podle scén</b>
+      <span id="organize-note">Vytvoří složky <code>001</code>, <code>002</code>…
+            a přesune do nich snímky jednotlivých scén — jedna scéna je jedna
+            situace. Snímků, které už v podsložce jsou, se nedotkne.
+            <b>Jediná akce, která hýbe originály.</b></span>
+    </div>
+    <button class="btn" id="tool-organize">Roztřídit</button>
   </div>
 
   <hr class="tool-sep">

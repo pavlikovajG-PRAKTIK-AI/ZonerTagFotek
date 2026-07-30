@@ -97,6 +97,7 @@ async function pollStatus() {
     if (state.jobWasRunning && !job.running) {
       toast(job.error ? "Zpracování selhalo" : job.message);
       reloadCurrentMode();
+      if (!job.error) offerOrganize();
     }
     state.jobWasRunning = job.running;
   } catch (e) {
@@ -400,11 +401,19 @@ function renderSalvageList() {
 async function rescuePhoto(rating) {
   const p = state.photos[state.photoIndex];
   if (!p) return;
-  await api("/api/rescue", {
+  const stars = rating || 2;
+  const res = await api("/api/rescue", {
     method: "POST",
-    body: JSON.stringify({ photo_id: p.id, rating: rating || 2 }),
+    body: JSON.stringify({ photo_id: p.id, rating: stars }),
   });
-  toast(`${p.filename} zachráněn (${"★".repeat(rating || 2)})`);
+
+  // V záchranném režimu je seznam poskládaný napříč celou expedicí, takže
+  // přeřazený snímek v něm vůbec nemusí být — stačí o něm říct.
+  let message = `${p.filename} zachráněn (${"★".repeat(stars)})`;
+  if (res.demoted && res.demoted.length) {
+    message += `, předchozí přeřazen na ${"★".repeat(res.demoted[0].rating)}`;
+  }
+  toast(message);
   removeFromSalvage();
 }
 
@@ -667,14 +676,33 @@ async function decide(changes) {
   const p = state.photos[state.photoIndex];
   if (!p) return;
 
-  await api("/api/decision", {
+  const res = await api("/api/decision", {
     method: "POST",
     body: JSON.stringify({ photo_id: p.id, ...changes }),
   });
 
   Object.assign(p, changes, { reviewed: 1 });
+  applyDemotions(res.demoted);
   renderStrip();
   showPhoto();
+}
+
+/* Hvězdička je v sérii jedinečná: server uvolnil předchozího držitele,
+   tady se to jen promítne do zobrazení. Bez hlášky by to vypadalo, že
+   fotka přišla o hvězdičky sama od sebe. */
+function applyDemotions(demoted) {
+  if (!demoted || !demoted.length) return;
+
+  demoted.forEach((d) => {
+    const other = state.photos.find((x) => x.id === d.photo_id);
+    if (other) other.rating = d.rating;
+  });
+
+  const first = state.photos.find((x) => x.id === demoted[0].photo_id);
+  const stars = "★".repeat(demoted[0].rating);
+  toast(demoted.length === 1 && first
+    ? `${first.filename} přeřazen na ${stars}`
+    : `${demoted.length} snímků přeřazeno na ${stars}`);
 }
 
 async function acceptBurst() {
@@ -837,7 +865,11 @@ async function undoLast() {
 
   const parts = Object.entries(result.restored || {})
     .map(([k, v]) => `${k}: ${v === "" ? "nic" : v}`).join(", ");
-  toast(`Zpět: ${result.filename} (${parts || "obnoveno"})`);
+  // Jeden stisk mohl změnit dvě fotky (přiřazení hvězdičky přeřadí
+  // předchozího držitele) — krok zpět vrací obě, ať je to vidět.
+  const also = (result.photos || []).length > 1
+    ? ` + ${result.photos.length - 1} přeřazená zpět` : "";
+  toast(`Zpět: ${result.filename} (${parts || "obnoveno"})${also}`);
 
   // Obnov pohled tak, aby bylo vidět, co se změnilo
   if (state.mode === "salvage") {
@@ -980,6 +1012,94 @@ async function reprocess(deep) {
 
 $("tool-rescore").onclick = () => reprocess(false);
 $("tool-reanalyze").onclick = () => reprocess(true);
+
+/* ------------------------------------ roztřídění do složek podle scén */
+/* Jediná akce v celém systému, která hýbe originály. Proto se nejdřív
+   ukáže, co přesně udělá, a teprve pak se něco přesune. */
+
+async function openOrganize() {
+  if (!state.rootId) { toast("Není načtená žádná složka"); return; }
+
+  let p;
+  try {
+    p = await api(`/api/organize/plan?root_id=${state.rootId}`);
+  } catch (e) {
+    toast(e.message);
+    return;
+  }
+
+  $("tools-sheet").close();
+  $("organize-summary").innerHTML = `
+    <div><b>${p.scenes.length}</b><span>${p.scenes.length === 1 ? "složka" : "složek"}</span></div>
+    <div class="s-pick"><b>${p.to_move}</b><span>k přesunu</span></div>
+    <div><b>${p.in_subfolder}</b><span>zůstane</span></div>`;
+
+  const detail = [];
+  if (p.scenes.length) {
+    detail.push(`Vytvoří se ${p.first_folder}${
+      p.last_folder !== p.first_folder ? "–" + p.last_folder : ""} ve složce ${p.root_path}.`);
+  } else {
+    detail.push("Není co přesouvat — žádný snímek neleží volně v kořeni importu.");
+  }
+  if (p.without_scene) {
+    detail.push(`${p.without_scene} snímků nemá čas pořízení, takže je nelze ` +
+                `zařadit do scény — zůstanou na místě.`);
+  }
+  $("organize-detail").textContent = detail.join(" ");
+
+  const list = $("organize-list");
+  list.hidden = !p.scenes.length;
+  if (p.scenes.length) {
+    $("organize-list-cap").textContent =
+      `Rozdělení do složek (zobrazit)`;
+    $("organize-list-items").innerHTML = p.scenes.map((s) =>
+      `<li><b>${s.folder}</b> — ${s.count} ${s.count === 1 ? "snímek" : "snímků"}` +
+      `, od ${formatTime(s.start_time)} (${escapeHtml(s.first_file)})</li>`).join("");
+  }
+
+  $("organize-go").disabled = !p.scenes.length;
+  $("organize-sheet").showModal();
+}
+
+/* Po prvním zpracování se roztřídění nabídne samo — je to přirozený další
+   krok. Nabídne, ne provede: přesun originálů nesmí nikoho zaskočit.
+   Jedna složka na celý import znamená, že se scény nerozdělily, a tam
+   přesun nemá smysl. */
+let organizeOffered = false;
+
+async function offerOrganize() {
+  if (organizeOffered || !state.rootId) return;
+  try {
+    const p = await api(`/api/organize/plan?root_id=${state.rootId}`);
+    if (p.scenes.length < 2) return;
+    organizeOffered = true;
+    openOrganize();
+  } catch (e) { /* nabídka je bonus, nesmí nic rozbít */ }
+}
+
+$("tool-organize").onclick = openOrganize;
+$("organize-cancel").onclick = () => $("organize-sheet").close();
+
+$("organize-go").onclick = async () => {
+  $("organize-go").disabled = true;
+  $("organize-go").textContent = "Přesouvám…";
+  try {
+    const r = await api("/api/organize", {
+      method: "POST",
+      body: JSON.stringify({ root_id: state.rootId }),
+    });
+    $("organize-sheet").close();
+    let msg = `Přesunuto ${r.moved} snímků do ${r.folders} složek`;
+    if (r.skipped || r.failed) msg += `, ${r.skipped + r.failed} přeskočeno`;
+    toast(msg);
+    if (r.message) console.warn("Roztřídění:", r.message);
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    $("organize-go").disabled = false;
+    $("organize-go").textContent = "Přesunout";
+  }
+};
 
 $("btn-export").onclick = async () => {
   const q = state.rootId ? `?root_id=${state.rootId}` : "";

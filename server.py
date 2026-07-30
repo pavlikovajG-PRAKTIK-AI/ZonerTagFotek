@@ -18,6 +18,7 @@ import calibration
 import config
 import db
 import detect
+import organize
 import pipeline
 import profiles
 import scoring
@@ -233,30 +234,46 @@ def burst_detail(burst_id: int):
 def decision(req: DecisionRequest):
     """Ulozi rozhodnuti fotografa. Zapisuje se jen do databaze -
     soubory na disku se dotkne az export."""
+    now = datetime.now().isoformat()
+    action = db.new_action()
+
     with db.connect() as conn:
         row = conn.execute("SELECT * FROM photos WHERE id=?", (req.photo_id,)).fetchone()
         if not row:
             raise HTTPException(404, "Fotka nenalezena")
 
         updates, params = [], []
+        rating = None
         if req.rating is not None:
-            db.log_decision(conn, req.photo_id, "rating", row["rating"], req.rating)
+            rating = max(0, min(5, req.rating))
+            db.log_decision(conn, req.photo_id, "rating", row["rating"], rating,
+                            at=now, action=action)
             updates.append("rating=?")
-            params.append(max(0, min(5, req.rating)))
+            params.append(rating)
         if req.flag is not None:
-            db.log_decision(conn, req.photo_id, "flag", row["flag"], req.flag)
+            db.log_decision(conn, req.photo_id, "flag", row["flag"], req.flag,
+                            at=now, action=action)
             updates.append("flag=?")
             params.append(req.flag)
         if req.keywords is not None:
-            db.log_decision(conn, req.photo_id, "keywords", row["keywords"], req.keywords)
+            db.log_decision(conn, req.photo_id, "keywords", row["keywords"],
+                            req.keywords, at=now, action=action)
             updates.append("keywords=?")
             params.append(req.keywords)
 
         updates += ["reviewed=1", "decided_at=?"]
-        params.append(datetime.now().isoformat())
+        params.append(now)
         params.append(req.photo_id)
 
         conn.execute(f"UPDATE photos SET {', '.join(updates)} WHERE id=?", params)
+
+        # Hvezdicka je v serii jedinecna: predchozi drzitel se uvolni.
+        # Shodne action_id sváže obe zmeny do jedne akce, takze Ctrl+Z
+        # vrati oboji najednou.
+        demoted = []
+        if rating is not None:
+            demoted = db.enforce_unique_rating(
+                conn, row["burst_id"], rating, req.photo_id, at=now, action=action)
 
         # Serie je hotova, kdyz je videna kazda fotka v ni
         if row["burst_id"]:
@@ -266,7 +283,7 @@ def decision(req: DecisionRequest):
             if left == 0:
                 conn.execute("UPDATE bursts SET reviewed=1 WHERE id=?", (row["burst_id"],))
 
-    return {"ok": True}
+    return {"ok": True, "demoted": demoted}
 
 
 @app.post("/api/accept-burst/{burst_id}")
@@ -280,6 +297,8 @@ def accept_burst(burst_id: int):
         b = conn.execute("SELECT best_photo_id FROM bursts WHERE id=?", (burst_id,)).fetchone()
         best = b["best_photo_id"] if b else None
         now = datetime.now().isoformat()
+        # Enter je jeden stisk, takze Ctrl+Z vrati celou serii najednou.
+        action = db.new_action()
 
         for p in photos:
             if p["id"] == best:
@@ -288,13 +307,40 @@ def accept_burst(burst_id: int):
                 rating, flag = 2, "pick"
             else:
                 rating, flag = 5, "reject"
-            db.log_decision(conn, p["id"], "rating", p["rating"], rating)
+            db.log_decision(conn, p["id"], "rating", p["rating"], rating,
+                            at=now, action=action)
             conn.execute(
                 "UPDATE photos SET rating=?, flag=?, reviewed=1, decided_at=? WHERE id=?",
                 (rating, flag, now, p["id"]))
 
         conn.execute("UPDATE bursts SET reviewed=1 WHERE id=?", (burst_id,))
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Roztrideni do slozek podle scen
+# ---------------------------------------------------------------------------
+
+@app.get("/api/organize/plan")
+def organize_plan(root_id: int):
+    """Co by presun udelal. Nic nemeni - slouzi k potvrzeni pred akci,
+    ktera se jako jedina v celem systemu dotyka umisteni originalu."""
+    result = organize.plan(root_id)
+    if result.get("error"):
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@app.post("/api/organize")
+def organize_apply(req: ResetRequest):
+    """Vytvori slozky 001, 002, ... a presune do nich snimky jednotlivych
+    scen. Snimky, ktere uz v podslozce jsou, se nedotkne."""
+    if not req.root_id:
+        raise HTTPException(400, "Chybi root_id")
+    result = organize.apply(req.root_id)
+    if result.get("error"):
+        raise HTTPException(404, result["error"])
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -363,13 +409,23 @@ def rescue(req: RescueRequest):
         if not row:
             raise HTTPException(404, "Fotka nenalezena")
 
-        db.log_decision(conn, req.photo_id, "rescue", row["flag"], "pick")
+        now = _dt.now().isoformat()
+        rating = max(1, min(5, req.rating))
+        action = db.new_action()
+
+        db.log_decision(conn, req.photo_id, "rescue", row["flag"], "pick",
+                        at=now, action=action)
         conn.execute(
             "UPDATE photos SET flag='pick', rating=?, rescued=1, reviewed=1, decided_at=? "
             "WHERE id=?",
-            (max(1, min(5, req.rating)), _dt.now().isoformat(), req.photo_id),
+            (rating, now, req.photo_id),
         )
-    return {"ok": True}
+        # Zachranenou fotku muze fotograf poslat i na * nebo ** - hvezdicka
+        # musi zustat v serii jedinecna.
+        demoted = db.enforce_unique_rating(
+            conn, row["burst_id"], rating, req.photo_id, at=now, action=action)
+
+    return {"ok": True, "demoted": demoted}
 
 
 @app.post("/api/dismiss/{photo_id}")
@@ -468,13 +524,17 @@ def resolve_duel(burst_id: int, photo_id: int):
 
         loser = b["duel_b"] if photo_id == b["duel_a"] else b["duel_a"]
         now = _dt.now().isoformat()
+        action = db.new_action()
 
         for pid, rating, flag in ((photo_id, 1, "pick"), (loser, 2, "pick")):
             old = conn.execute("SELECT rating FROM photos WHERE id=?", (pid,)).fetchone()
-            db.log_decision(conn, pid, "rating", old["rating"] if old else 0, rating)
+            db.log_decision(conn, pid, "rating", old["rating"] if old else 0,
+                            rating, at=now, action=action)
             conn.execute(
                 "UPDATE photos SET rating=?, flag=?, reviewed=1, decided_at=? WHERE id=?",
                 (rating, flag, now, pid))
+            # Serie uz mohla mit * nebo ** z rucniho hodnoceni - uvolnit.
+            db.enforce_unique_rating(conn, burst_id, rating, pid, at=now, action=action)
 
         conn.execute(
             "UPDATE bursts SET best_photo_id=?, duel_a=NULL, duel_b=NULL WHERE id=?",

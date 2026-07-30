@@ -9,6 +9,7 @@ zmena pismene jednotky nebo presun slozky nerozbily databazi.
 """
 
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS photos (
     edge_cut        REAL,
     light_asym      REAL,                 -- nerovnomernost osvetleni subjektu 0-1
     box_aspect      REAL,                 -- pomer stran ramecku (pixely), natoceni
+    content         BLOB,                 -- obrazovy popis pro rozpoznani scen
 
     score           REAL,                 -- relativni skore v ramci serie
     scene_rank      INTEGER,              -- poradi mezi vitezi serii ve scene
@@ -116,7 +118,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     field       TEXT NOT NULL,     -- rating | flag | keywords
     old_value   TEXT,
     new_value   TEXT,
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    action_id   TEXT               -- jeden stisk klavesy = jedno action_id
 );
 
 CREATE INDEX IF NOT EXISTS idx_photos_stage    ON photos(stage);
@@ -174,6 +177,10 @@ def migrate(conn):
         if col not in existing:
             conn.execute(ddl)
 
+    decision_cols = {r["name"] for r in conn.execute("PRAGMA table_info(decisions)")}
+    if "action_id" not in decision_cols:
+        conn.execute("ALTER TABLE decisions ADD COLUMN action_id TEXT")
+
     photo_cols = {r["name"] for r in conn.execute("PRAGMA table_info(photos)")}
     for col, ddl in (
         ("rescued", "ALTER TABLE photos ADD COLUMN rescued INTEGER DEFAULT 0"),
@@ -184,6 +191,7 @@ def migrate(conn):
         ("scene_rank", "ALTER TABLE photos ADD COLUMN scene_rank INTEGER"),
         ("light_asym", "ALTER TABLE photos ADD COLUMN light_asym REAL"),
         ("box_aspect", "ALTER TABLE photos ADD COLUMN box_aspect REAL"),
+        ("content", "ALTER TABLE photos ADD COLUMN content BLOB"),
     ):
         if col not in photo_cols:
             conn.execute(ddl)
@@ -201,15 +209,62 @@ def absolute_photo_path(conn, photo_row):
     return root / photo_row["rel_path"]
 
 
-def log_decision(conn, photo_id, field, old_value, new_value):
+def new_action():
+    """Vrati identifikator jedne akce fotografa (jeden stisk klavesy).
+
+    Zamerne NENI to casovy udaj: hodiny ve Windows maji hrube rozliseni
+    a dva ruzne stisky mohou dostat stejny cas na mikrosekundu. Krok zpet
+    by pak vratil i rozhodnuti, ktera k akci nepatri - u serie o dvaceti
+    snimcich klidne celou serii.
+    """
+    return uuid.uuid4().hex
+
+
+def log_decision(conn, photo_id, field, old_value, new_value, at=None, action=None):
     """Zaznamena rozhodnuti fotografa. Slouzi ke kroku zpet a jako
-    trenovaci data pro budouci model osobniho vkusu."""
+    trenovaci data pro budouci model osobniho vkusu.
+
+    Zapisy se stejnym `action` patri k JEDNOMU stisku klavesy a krok zpet
+    je vraci najednou. Jeden stisk muze zmenit vic fotek: prirazeni
+    hvezdicky preradi jejiho predchoziho drzitele.
+    """
     from datetime import datetime
     conn.execute(
-        "INSERT INTO decisions (photo_id, field, old_value, new_value, created_at) "
-        "VALUES (?,?,?,?,?)",
-        (photo_id, field, str(old_value), str(new_value), datetime.now().isoformat()),
+        "INSERT INTO decisions "
+        "(photo_id, field, old_value, new_value, created_at, action_id) "
+        "VALUES (?,?,?,?,?,?)",
+        (photo_id, field, str(old_value), str(new_value),
+         at or datetime.now().isoformat(), action),
     )
+
+
+def enforce_unique_rating(conn, burst_id, rating, keep_photo_id, at=None, action=None):
+    """Uvolni hvezdicku v serii: ostatni fotky se stejnym hodnocenim
+    preradi podle config.UNIQUE_RATINGS.
+
+    Z kazde serie ma vzejit prave jedna * a prave jedna **. Bez tohoto
+    kroku by prirazeni hvezdicky jine fotce nechalo predchozi drzitele
+    na miste a v serii by byly dve stejne - filtr v Zoneru by ukazal obe.
+
+    Vraci seznam {"photo_id", "rating"} preradenych snimku, aby rozhrani
+    mohlo rict, co se stalo, a prekreslit je.
+    """
+    target = config.UNIQUE_RATINGS.get(rating)
+    if target is None or not burst_id:
+        return []
+
+    rows = conn.execute(
+        "SELECT id, rating FROM photos WHERE burst_id=? AND rating=? AND id!=?",
+        (burst_id, rating, keep_photo_id),
+    ).fetchall()
+
+    moved = []
+    for row in rows:
+        log_decision(conn, row["id"], "rating", row["rating"], target,
+                     at=at, action=action)
+        conn.execute("UPDATE photos SET rating=? WHERE id=?", (target, row["id"]))
+        moved.append({"photo_id": row["id"], "rating": target})
+    return moved
 
 
 # Pole, ktera lze vratit zpet, a jak se prevede ulozena hodnota
@@ -224,40 +279,53 @@ _UNDOABLE = {
 def undo_last(conn):
     """Vrati posledni rozhodnuti fotografa.
 
-    Jeden stisk klavesy zapise vic zaznamu (hvezdicky i priznak), proto
-    se vraci cela SKUPINA zaznamu se stejnym casem u stejneho snimku -
-    jinak by jeden omyl vyzadoval dve stisknuti Ctrl+Z.
+    Jeden stisk klavesy zapise vic zaznamu, a nemusi jit ani o jednu
+    fotku: prirazeni hvezdicky zapise zmenu u ni a zaroven preradi
+    predchoziho drzitele te hvezdicky. Vraci se proto cela SKUPINA
+    navazujicich zaznamu, ktere patri k jedne akci - jinak by jeden omyl
+    vyzadoval nekolik stisknuti Ctrl+Z a mezistav by byl nesmyslny.
+
+    Skupina se pozna podle action_id, ktere zapisy z jednoho stisku
+    dostanou shodne. Starsi zaznamy bez action_id (z verze pred timto
+    sloupcem) se resi zaloznim pravidlem: navazujici id u tehoz snimku.
 
     Pri rytmu jednoho stisku za vterinu je omyl otazkou casu, a bez
     kroku zpet znamena hledat, ktera fotka to vlastne byla.
     """
+    FIELDS = "('rating','flag','keywords','rescue')"
+
     last = conn.execute(
-        "SELECT * FROM decisions WHERE field IN ('rating','flag','keywords','rescue') "
-        "ORDER BY id DESC LIMIT 1"
+        f"SELECT * FROM decisions WHERE field IN {FIELDS} "
+        f"ORDER BY id DESC LIMIT 1"
     ).fetchone()
     if not last:
         return None
 
-    group = conn.execute(
-        "SELECT * FROM decisions WHERE photo_id=? AND id<=? "
-        "AND field IN ('rating','flag','keywords','rescue') ORDER BY id DESC",
-        (last["photo_id"], last["id"]),
-    ).fetchall()
-
-    # Jeden stisk = nekolik zaznamu bezprostredne za sebou u tehoz snimku.
-    # Casy se lisi o mikrosekundy, proto se skupina hleda podle navaznosti
-    # id, ne podle shodneho casu.
-    action = []
-    expected_id = last["id"]
-    for row in group:
-        if row["id"] != expected_id:
-            break
-        action.append(row)
-        expected_id -= 1
+    if last["action_id"]:
+        action = conn.execute(
+            f"SELECT * FROM decisions WHERE action_id=? AND field IN {FIELDS} "
+            f"ORDER BY id DESC",
+            (last["action_id"],),
+        ).fetchall()
+    else:
+        # Zaloha pro zaznamy z drivejsi verze: navazujici id u tehoz snimku
+        group = conn.execute(
+            f"SELECT * FROM decisions WHERE photo_id=? AND id<=? "
+            f"AND field IN {FIELDS} ORDER BY id DESC",
+            (last["photo_id"], last["id"]),
+        ).fetchall()
+        action = []
+        expected_id = last["id"]
+        for row in group:
+            if row["id"] != expected_id:
+                break
+            action.append(row)
+            expected_id -= 1
 
     photo = conn.execute("SELECT filename, burst_id FROM photos WHERE id=?",
                          (last["photo_id"],)).fetchone()
     restored = {}
+    touched = []
 
     for row in action:
         field = row["field"]
@@ -272,25 +340,32 @@ def undo_last(conn):
         else:
             conn.execute(f"UPDATE photos SET {field}=? WHERE id=?",
                          (old_value, row["photo_id"]))
-        restored[field] = old_value
+        if row["photo_id"] == last["photo_id"]:
+            restored[field] = old_value
+        if row["photo_id"] not in touched:
+            touched.append(row["photo_id"])
         conn.execute("DELETE FROM decisions WHERE id=?", (row["id"],))
 
     # Snimek uz neni "vyrizeny", pokud po nem nezustalo zadne jine rozhodnuti
-    remaining = conn.execute(
-        "SELECT COUNT(*) c FROM decisions WHERE photo_id=?", (last["photo_id"],)
-    ).fetchone()["c"]
-    if remaining == 0:
-        conn.execute("UPDATE photos SET reviewed=0, decided_at=NULL WHERE id=?",
-                     (last["photo_id"],))
-
-    if photo and photo["burst_id"]:
-        conn.execute("UPDATE bursts SET reviewed=0 WHERE id=?", (photo["burst_id"],))
+    for pid in touched:
+        remaining = conn.execute(
+            "SELECT COUNT(*) c FROM decisions WHERE photo_id=?", (pid,)
+        ).fetchone()["c"]
+        if remaining == 0:
+            conn.execute("UPDATE photos SET reviewed=0, decided_at=NULL WHERE id=?",
+                         (pid,))
+        burst = conn.execute("SELECT burst_id FROM photos WHERE id=?",
+                             (pid,)).fetchone()
+        if burst and burst["burst_id"]:
+            conn.execute("UPDATE bursts SET reviewed=0 WHERE id=?",
+                         (burst["burst_id"],))
 
     return {
         "photo_id": last["photo_id"],
         "filename": photo["filename"] if photo else None,
         "burst_id": photo["burst_id"] if photo else None,
         "restored": restored,
+        "photos": touched,
     }
 
 

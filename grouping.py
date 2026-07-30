@@ -6,13 +6,26 @@ Dve urovne, protoze jedna nestaci:
   SERIE  - davka ze serioveho snimani. Mezera nad 2 s zacina novou.
            Uvnitr serie soutezi snimky mezi sebou.
 
-  SCENA  - cela situace. Mezera nad 3 minuty zacina novou. Lev u
-           napajedla focený dvacet minut s pauzami da padesat serii
-           tehoz lva; jako scena je to jedna udalost. Uvnitr sceny
-           spolu soutezi jen VITEZOVE jednotlivych serii.
+  SCENA  - cela situace. Zacina novou, kdyz je mezera nad 3 minuty NEBO
+           kdyz se zmeni obsah snimku. Lev u napajedla focený dvacet minut
+           s pauzami da padesat serii tehoz lva; jako scena je to jedna
+           udalost. Uvnitr sceny spolu soutezi jen VITEZOVE serii.
 
 Bez teto druhe urovne dostane fotograf 400 rozhodnuti misto 80, a vetsina
 z nich se tyka tehoz zvirete v temer stejne poze.
+
+PROC SE SCENY DELI I PODLE OBSAHU
+
+Cas sam nestaci. Kdyz fotograf za dve minuty otoci objektiv od capa
+v trave na ptaky na drate, je to podle casu jedna scena, ale ve
+skutecnosti dve uplne jine situace - a vyber "nejlepsiho" uvnitr takove
+smesi nema smysl. Porovnava se proto i obrazovy popis (viz content.py).
+
+Nova scena zacne, az kdyz se snimek lisi OD PREDCHOZIHO SNIMKU
+I OD ZACATKU SCENY. Jedina podminka by nestacila:
+  - jen proti predchozimu: jeden nepovedeny zaber uprostred serie
+    (rozmazany pohyb, zavreny zaber do trávy) by scenu zbytecne rozsekl
+  - jen proti zacatku: pozvolna zmena by se nikdy neprojevila
 
 Kazde serii se zaroven navrhne profil hodnoceni podle EXIF.
 """
@@ -20,6 +33,7 @@ Kazde serii se zaroven navrhne profil hodnoceni podle EXIF.
 from datetime import datetime
 
 import config
+import content
 import db
 import exif_profile
 
@@ -73,8 +87,9 @@ def run(root_id=None):
             params.append(root_id)
 
         rows = conn.execute(
-            f"SELECT id, root_id, capture_time, filename, shutter, focal_length, iso "
-            f"FROM photos {where} ORDER BY capture_time, filename", params
+            f"SELECT id, root_id, capture_time, filename, shutter, focal_length, "
+            f"iso, content FROM photos {where} ORDER BY capture_time, filename",
+            params
         ).fetchall()
 
         # Poradi je zavazne: nejdriv se z fotek odstrani odkazy na serie,
@@ -95,17 +110,42 @@ def run(root_id=None):
         current_scene = []
         prev_time = None
         prev_root = None
+        prev_desc = None      # popis predchoziho snimku
+        anchor_desc = None    # popis prvniho snimku soucasne sceny
 
         for row in rows:
             t = datetime.fromisoformat(row["capture_time"])
+            desc = content.from_blob(row["content"]) if config.SCENE_BY_CONTENT else None
+
+            new_scene = False
             if prev_time is not None:
                 gap = (t - prev_time).total_seconds()
                 if gap > config.SCENE_GAP_SECONDS or row["root_id"] != prev_root:
-                    scenes.append(current_scene)
-                    current_scene = []
+                    new_scene = True
+                elif config.SCENE_BY_CONTENT:
+                    # Musi se lisit od predchoziho snimku i od zacatku sceny.
+                    # Chybi-li popis (starsi data), rozhoduje dal jen cas.
+                    d_prev = content.distance(prev_desc, desc)
+                    d_anchor = content.distance(anchor_desc, desc)
+                    if (d_prev is not None and d_anchor is not None
+                            and d_prev > config.SCENE_CONTENT_THRESHOLD
+                            and d_anchor > config.SCENE_CONTENT_THRESHOLD):
+                        new_scene = True
+
+            if new_scene:
+                scenes.append(current_scene)
+                current_scene = []
+                anchor_desc = None
+
             current_scene.append(row)
+            if anchor_desc is None:
+                anchor_desc = desc
             prev_time = t
             prev_root = row["root_id"]
+            # Snimek bez popisu nesmi vymazat pamet scény, jinak by se
+            # dalsi porovnani delalo naslepo.
+            if desc is not None:
+                prev_desc = desc
 
         if current_scene:
             scenes.append(current_scene)

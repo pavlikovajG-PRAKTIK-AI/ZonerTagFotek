@@ -86,14 +86,14 @@ def analyze_step(root_id=None, progress=None):
                         is_empty=?, sharpness=?, sharpness_mean=?, sharpness_src=?,
                         exposure=?, clipped_high=?, clipped_low=?,
                         subject_area=?, edge_cut=?, light_asym=?, box_aspect=?,
-                        stage='analyzed', error=NULL
+                        content=?, stage='analyzed', error=NULL
                        WHERE id=?""",
                     (
                         box["conf"], box["x"], box["y"], box["w"], box["h"],
                         box["is_empty"], m["sharpness"], m["sharpness_mean"],
                         m["sharpness_src"], m["exposure"], m["clipped_high"],
                         m["clipped_low"], m["subject_area"], m["edge_cut"],
-                        m["light_asym"], m["box_aspect"], row["id"],
+                        m["light_asym"], m["box_aspect"], m["content"], row["id"],
                     ),
                 )
             except Exception as e:

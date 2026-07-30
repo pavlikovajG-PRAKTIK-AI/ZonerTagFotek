@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 
 import config
+import content
 
 
 def crop_subject(img, box, padding=0.05):
@@ -159,4 +160,7 @@ def analyze(proxy_path, box, fullres_path=None):
         "edge_cut": edge_cut(box),
         "light_asym": light_asym,
         "box_aspect": box_aspect,
+        # Popis obsahu pro rozpoznani scen. Pocita se z nahledu, ktery uz
+        # je nacteny, takze nestoji zadne dalsi cteni z disku.
+        "content": content.to_blob(content.describe(img)),
     }

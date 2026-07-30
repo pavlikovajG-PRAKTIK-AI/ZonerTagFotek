@@ -92,6 +92,29 @@ MAX_BURST_SIZE = 40
 # ni spolu soutezi jen vitezove jednotlivych serii.
 SCENE_GAP_SECONDS = 180.0
 
+# Scena se deli i podle OBSAHU, ne jen podle casu. Kdyz fotograf za dve
+# minuty otoci objektiv od capa v trave na ptaky na drate, je to podle
+# casu jedna scena, ale ve skutecnosti dve uplne jine situace.
+SCENE_BY_CONTENT = True
+
+# Prah obrazove zmeny, ktery zacina novou scenu (viz content.py).
+# NIZSI CISLO DELI OCHOTNEJI, VYSSI SLUCUJE.
+#
+# Merene na 202 snimcich z Pantanalu (import 20260719):
+#
+#   prah   scen   z toho o 1 snimku   median velikosti
+#   0.45     53                  26                  2
+#   0.55     47                  22                  2
+#   0.65     37                  16                  2
+#   0.75     26                   7                  6
+#   0.85     18                   3                 10
+#
+# Rucni roztrideni jineho dne (20260720) dalo 16 slozek s medianem 10.
+# Hodnota 0.75 lezi nejbliz tomu, jak sceny deli clovek: skutecne zmeny
+# situace zachyti (prechod z trávy na oblohu meri 0.88 az 0.94), ale
+# nerozpada se na desitky scen o jednom snimku.
+SCENE_CONTENT_THRESHOLD = 0.75
+
 # ---------------------------------------------------------------------------
 # Souboj dvou nejlepsich
 # ---------------------------------------------------------------------------
@@ -138,6 +161,22 @@ SCORE_WEIGHTS = {
     "exposure": 0.20,      # penalizace vypalenych svetel a zalitych stinu
     "centering": 0.10,     # subjekt uriznuty okrajem je horsi
 }
+
+# ---------------------------------------------------------------------------
+# Jedinecnost hvezdicek v serii
+# ---------------------------------------------------------------------------
+
+# Z kazde serie ma vzejit prave jedna * a prave jedna **. Kdyz se hvezdicka
+# priradi jine fotce, ta predchozi se musi uvolnit - jinak by v serii byly
+# dve stejne a filtr v Zoneru by ukazal obe.
+#
+# Klic = prirazovane hodnoceni, hodnota = kam se preradi predchozi drzitel.
+# Prazdny slovnik {} vynucovani vypne.
+#
+# Vychozi 3 hvezdicky znamenaji "ponechat, ale neni to vyber": neni to
+# vyrazeni (to je 5) ani vyber (1 a 2). Snimek zustane k dispozici, kdyby
+# se rozhodnuti jeste zmenilo.
+UNIQUE_RATINGS = {1: 3, 2: 3}
 
 # ---------------------------------------------------------------------------
 # Zapis metadat
