@@ -10,6 +10,12 @@ Kompletní český návod je v souboru **[NAVOD.txt](NAVOD.txt)**.
 
 ## Rychlý start
 
+Na Windows stačí poklepat na **`WildSort.hta`** — okno v HTML zkontroluje
+prostředí, nastartuje server a otevře rozhraní. Otevřené minimalizované okno
+příkazové řádky *je* běžící server; jeho zavřením práci ukončíš.
+
+Ručně:
+
 ```bash
 pip install -r requirements.txt
 python run.py
@@ -18,6 +24,9 @@ python run.py
 Prohlížeč se otevře na `http://127.0.0.1:8756`. Klikni na **Načíst složku**,
 zadej cestu ke snímkům a nech proběhnout zpracování (detekce zvířat je
 nejpomalejší krok — u velkých dávek přes noc).
+
+Rozhraní není soubor, na který se klikne: `web/index.html` samo o sobě nic
+neumí, protože veškerou práci dělá lokální server běžící vedle něj.
 
 ### Nutné
 

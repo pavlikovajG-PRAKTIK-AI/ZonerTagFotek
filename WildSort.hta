@@ -1,0 +1,248 @@
+﻿<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<html>
+<head>
+<title>WildSort — spuštění</title>
+<hta:application
+  id="wildsort"
+  applicationname="WildSort"
+  singleinstance="yes"
+  scroll="no"
+  border="thin"
+  maximizebutton="no"
+  minimizebutton="no"
+  sysmenu="yes"
+  contextmenu="no"
+  selection="no"
+  innerborder="no"
+  navigable="no"
+  version="1.0">
+<style>
+  body {
+    font: 13px "Segoe UI", sans-serif;
+    background: #0F1215;
+    color: #D8DEE4;
+    margin: 0;
+    padding: 22px 26px;
+    overflow: hidden;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .mark {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #E8B84B; position: relative; flex: none;
+  }
+  .mark:after {
+    content: ""; position: absolute; left: 7px; top: 7px;
+    width: 8px; height: 8px; border-radius: 50%; background: #0F1215;
+  }
+  h1 { font-size: 19px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  .lead { color: #8B959F; font-size: 12px; margin: 0 0 18px 32px; }
+
+  .status {
+    background: #171B20; border: 1px solid #232A31; border-radius: 6px;
+    padding: 13px 15px; margin-bottom: 14px; min-height: 42px;
+  }
+  .status-main { font-size: 14px; color: #E8EDF2; }
+  .status-note { font-size: 11px; color: #7C868F; margin-top: 5px; }
+  .status.err { border-color: #6E2B2B; background: #1D1516; }
+  .status.err .status-main { color: #E88B8B; }
+  .status.ok { border-color: #2E5A3A; background: #141B16; }
+  .status.ok .status-main { color: #8BD79B; }
+
+  table.env { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.env td { padding: 3px 0; color: #8B959F; }
+  table.env td.v { text-align: right; color: #B8C1C9; }
+  td.v.no { color: #C97B7B; }
+  td.v.yes { color: #7FB98C; }
+
+  .actions { margin-top: 18px; text-align: right; }
+  button {
+    font: 13px "Segoe UI", sans-serif; padding: 7px 15px; cursor: pointer;
+    background: #1D2329; color: #D8DEE4;
+    border: 1px solid #2C343C; border-radius: 5px; margin-left: 7px;
+  }
+  button:hover { background: #252D35; }
+  button.solid {
+    background: #E8B84B; color: #14181C; border-color: #E8B84B; font-weight: 600;
+  }
+  button.solid:hover { background: #F0C660; }
+  button[disabled] { opacity: .45; cursor: default; }
+  a { color: #E8B84B; }
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <span class="mark"></span>
+  <h1>WildSort</h1>
+</div>
+<p class="lead">Třídění fotografií z expedice před prací v Zoneru</p>
+
+<div class="status" id="box">
+  <div class="status-main" id="msg">Kontroluji prostředí…</div>
+  <div class="status-note" id="note"></div>
+</div>
+
+<table class="env">
+  <tr><td>Python</td><td class="v" id="e-py">…</td></tr>
+  <tr><td>ExifTool</td><td class="v" id="e-et">…</td></tr>
+  <tr><td>MegaDetector</td><td class="v" id="e-md">…</td></tr>
+</table>
+
+<div class="actions">
+  <button id="btn-open" disabled>Otevřít rozhraní</button>
+  <button id="btn-start" class="solid" disabled>Spustit</button>
+  <button id="btn-close">Zavřít</button>
+</div>
+
+<script language="JScript">
+var URL = "http://127.0.0.1:8756";
+var shell = new ActiveXObject("WScript.Shell");
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+
+// Slozka, ve ktere lezi tento soubor. Vsechny cesty se od ni odvozuji,
+// aby se cela aplikace dala presunout jinam bez upravy launcheru.
+var FOLDER = (function () {
+  var p = decodeURIComponent(location.pathname).replace(/\//g, "\\");
+  if (p.charAt(0) === "\\") p = p.substring(1);
+  return p.substring(0, p.lastIndexOf("\\"));
+})();
+
+var PYTHON = shell.ExpandEnvironmentStrings(
+  "%LOCALAPPDATA%\\Programs\\Python\\Python312\\python.exe");
+var EXIFTOOL = shell.ExpandEnvironmentStrings(
+  "%LOCALAPPDATA%\\Programs\\ExifTool\\exiftool.exe");
+var MODEL = FOLDER + "\\models\\md_v5a.0.0.pt";
+var BAT = FOLDER + "\\WildSort.bat";
+
+function $(id) { return document.getElementById(id); }
+
+function say(main, note, kind) {
+  $("msg").innerHTML = main;
+  $("note").innerHTML = note || "";
+  $("box").className = "status" + (kind ? " " + kind : "");
+}
+
+function mark(id, ok, text) {
+  var cell = $(id);
+  cell.className = "v " + (ok ? "yes" : "no");
+  cell.innerHTML = text;
+}
+
+/* Bezi uz server? Kratky timeout, aby se okno nezaseklo. */
+function serverAlive() {
+  try {
+    var http = new ActiveXObject("MSXML2.XMLHTTP");
+    http.open("GET", URL + "/api/status", false);
+    http.send();
+    return http.status === 200;
+  } catch (e) {
+    return false;
+  }
+}
+
+function openUI() {
+  shell.Run('"' + URL + '"', 1, false);
+}
+
+/* --------------------------------------------------- kontrola prostredi */
+
+var havePython = fso.FileExists(PYTHON);
+var haveExif = fso.FileExists(EXIFTOOL);
+var haveModel = fso.FileExists(MODEL);
+var haveBat = fso.FileExists(BAT);
+
+// Python nemusi byt jen na miste z instalace pres winget - zkus i PATH.
+if (!havePython) {
+  try {
+    var probe = shell.Exec("python -c \"import sys; print(sys.executable)\"");
+    while (probe.Status === 0) { }
+    var found = probe.StdOut.ReadAll().replace(/[\r\n]/g, "");
+    if (found && fso.FileExists(found)) { PYTHON = found; havePython = true; }
+  } catch (e) { }
+}
+
+mark("e-py", havePython, havePython ? "nalezen" : "chybí");
+mark("e-et", haveExif, haveExif ? "nalezen" : "chybí — nutný");
+mark("e-md", haveModel, haveModel ? "aktivní" : "bez detekce zvířat");
+
+/* ------------------------------------------------------------- spusteni */
+
+var waited = 0;
+var LIMIT = 210;   // sekund; prvni start nacita model, to trva
+
+function waitForServer() {
+  if (serverAlive()) {
+    say("Rozhraní je otevřené v prohlížeči.",
+        "Server běží v okně příkazové řádky — zavřením toho okna práci ukončíš. " +
+        "Tento launcher můžeš zavřít.", "ok");
+    $("btn-open").disabled = false;
+    $("btn-start").disabled = true;
+    return;
+  }
+
+  waited += 2;
+  if (waited > LIMIT) {
+    say("Server se nepodařilo nastartovat.",
+        "Podívej se do okna příkazové řádky (na hlavním panelu) — je v něm " +
+        "napsaný důvod. Ručně jde aplikace spustit souborem WildSort.bat.", "err");
+    $("btn-start").disabled = false;
+    return;
+  }
+
+  say("Startuji server…",
+      "Načítá se model pro detekci zvířat, poprvé to trvá i minutu. " +
+      "Čekám " + waited + " s. Prohlížeč se otevře sám.");
+  setTimeout(waitForServer, 2000);
+}
+
+function start() {
+  if (!havePython) {
+    say("Python nenalezen.",
+        "Nainstaluj Python 3.10 nebo novější z python.org a spusť launcher znovu. " +
+        "Postup je i v souboru NAVOD.txt.", "err");
+    return;
+  }
+  if (!haveBat) {
+    say("Chybí soubor WildSort.bat.",
+        "Launcher ho hledá ve složce " + FOLDER + ".", "err");
+    return;
+  }
+
+  $("btn-start").disabled = true;
+  // Minimalizovane okno konzole zustava jako ovladac serveru: dokud bezi,
+  // bezi aplikace; zavrenim se ukonci.
+  shell.Run('"' + BAT + '"', 7, false);
+  waited = 0;
+  setTimeout(waitForServer, 2000);
+}
+
+/* ------------------------------------------------------------- tlacitka */
+
+$("btn-start").onclick = start;
+$("btn-open").onclick = openUI;
+$("btn-close").onclick = function () { window.close(); };
+
+/* ---------------------------------------------------------- start okna */
+
+window.resizeTo(520, 430);
+try {
+  window.moveTo(Math.max(0, (screen.availWidth - 520) / 2),
+                Math.max(0, (screen.availHeight - 430) / 3));
+} catch (e) { }
+
+if (!haveExif) {
+  say("ExifTool nenalezen — bez něj to nepojede.",
+      "Bez ExifToolu nelze číst EXIF, vytahovat náhledy z RAWu ani zapisovat " +
+      "XMP pro Zoner. Nainstaluj ho z exiftool.org a spusť launcher znovu.", "err");
+  $("btn-start").disabled = false;
+} else if (serverAlive()) {
+  say("Server už běží — otevírám rozhraní.", URL, "ok");
+  $("btn-open").disabled = false;
+  openUI();
+  setTimeout(function () { window.close(); }, 1200);
+} else {
+  start();
+}
+</script>
+</body>
+</html>

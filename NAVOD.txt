@@ -120,6 +120,26 @@ PLACENE: nic. Vsechno vyse je zdarma.
 4. PRVNI SPUSTENI
 -------------------------------------------------------------------------------
 
+NEJJEDNODUSSI CESTA - POKLEPANIM:
+
+  Poklepej na soubor  WildSort.hta
+
+  Je to okno v HTML. Zkontroluje, jestli je vsechno nainstalovane (Python,
+  ExifTool, MegaDetector), nastartuje server a otevre rozhrani v prohlizeci.
+  Kdyz uz server bezi, jen otevre rozhrani.
+
+  Prvni start trva asi 10 sekund - nacita se model pro detekci zvirat.
+
+  Alternativne  WildSort.bat  udela totez bez uvodniho okna.
+
+CO ZUSTANE OTEVRENE:
+
+  Minimalizovane okno prikazove radky. To JE bezici server - dokud je
+  otevrene, aplikace funguje. Zavrenim toho okna (nebo Ctrl+C v nem) praci
+  ukoncis. Launcher ani prohlizec zavirat nemusis, ty na provoz nemaji vliv.
+
+RUCNE Z PRIKAZOVE RADKY:
+
   1. Otevri prikazovou radku ve slozce projektu
   2. Spust:  python run.py
   3. Skript ohlasi, zda nasel ExifTool a MegaDetector
@@ -127,6 +147,11 @@ PLACENE: nic. Vsechno vyse je zdarma.
   5. Klikni na "Nacist slozku", zadej cestu ke snimkum a spust zpracovani
 
 Server ukoncis stiskem Ctrl+C v prikazove radce.
+
+POZOR - ROZHRANI NENI SOUBOR, NA KTERY SE KLIKA. Soubor web/index.html sam
+o sobe nic neumi; vsechnu praci (cteni RAWu, detekci zvirat, databazi, zapis
+XMP) dela server, ktery musi bezet vedle nej. Proto se spousti launcherem
+a rozhrani se otevira na adrese http://127.0.0.1:8756.
 
 DULEZITE: fotky nech na internim disku po celou dobu zpracovani. Cteni
 tisicu souboru pres USB zpracovani znatelne prodlouzi. Externi disk pouzij
