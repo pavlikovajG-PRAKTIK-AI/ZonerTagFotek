@@ -77,12 +77,14 @@ def run(root_id=None):
             f"FROM photos {where} ORDER BY capture_time, filename", params
         ).fetchall()
 
+        # Poradi je zavazne: nejdriv se z fotek odstrani odkazy na serie,
+        # az potom se serie smazou. Obracene poradi shodi cizi klic.
         if root_id:
-            conn.execute("DELETE FROM bursts WHERE root_id=?", (root_id,))
-            conn.execute("DELETE FROM scenes WHERE root_id=?", (root_id,))
             conn.execute(
                 "UPDATE photos SET burst_id=NULL, scene_id=NULL WHERE root_id=?",
                 (root_id,))
+            conn.execute("DELETE FROM bursts WHERE root_id=?", (root_id,))
+            conn.execute("DELETE FROM scenes WHERE root_id=?", (root_id,))
         else:
             conn.execute("UPDATE photos SET burst_id=NULL, scene_id=NULL")
             conn.execute("DELETE FROM bursts")

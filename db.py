@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS photos (
     clipped_low     REAL,
     subject_area    REAL,
     edge_cut        REAL,
+    light_asym      REAL,                 -- nerovnomernost osvetleni subjektu 0-1
+    box_aspect      REAL,                 -- pomer stran ramecku (pixely), natoceni
 
     score           REAL,                 -- relativni skore v ramci serie
     scene_rank      INTEGER,              -- poradi mezi vitezi serii ve scene
@@ -180,6 +182,8 @@ def migrate(conn):
         ("sharpness_mean", "ALTER TABLE photos ADD COLUMN sharpness_mean REAL"),
         ("sharpness_src", "ALTER TABLE photos ADD COLUMN sharpness_src TEXT"),
         ("scene_rank", "ALTER TABLE photos ADD COLUMN scene_rank INTEGER"),
+        ("light_asym", "ALTER TABLE photos ADD COLUMN light_asym REAL"),
+        ("box_aspect", "ALTER TABLE photos ADD COLUMN box_aspect REAL"),
     ):
         if col not in photo_cols:
             conn.execute(ddl)

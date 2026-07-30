@@ -84,6 +84,23 @@ def exposure_stats(gray):
     return mean, clipped_high, clipped_low
 
 
+def light_asymmetry(gray):
+    """Nerovnomernost osvetleni subjektu: 0 = obe poloviny stejne,
+    1 = jedna strana uplne ve stinu.
+
+    Tvar osvetlena jen z poloviny je klasicka vada portretu zvirete.
+    Merit primo oblicej neumime, ale u vyrezu subjektu se pulene svetlo
+    projevi rozdilem jasu leve a prave poloviny - a uvnitr serie, kde
+    je svetlo konstantni, vyhraje snimek s natocenim ke svetlu.
+    """
+    h, w = gray.shape[:2]
+    if w < 16:
+        return 0.0
+    left = float(np.mean(gray[:, : w // 2]))
+    right = float(np.mean(gray[:, w // 2:]))
+    return abs(left - right) / max(left + right, 1.0)
+
+
 def edge_cut(box):
     """Odhad, jak moc je subjekt uriznuty okrajem snimku.
     0 = cely v zaberu, 1 = tesne u okraje ze vsech stran."""
@@ -109,6 +126,15 @@ def analyze(proxy_path, box, fullres_path=None):
     crop = crop_subject(img, box)
     gray_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     mean, high, low = exposure_stats(gray_crop)
+    light_asym = light_asymmetry(gray_crop)
+
+    # Pomer stran ramecku subjektu V PIXELECH (normalizovane souradnice
+    # by u nectvercoveho snimku lhaly). Ptak z profilu je siroky, anfas
+    # uzky - slouzi jako priblizny ukazatel natoceni.
+    img_h, img_w = img.shape[:2]
+    box_w_px = max(1.0, box["w"] * img_w)
+    box_h_px = max(1.0, box["h"] * img_h)
+    box_aspect = float(box_w_px / box_h_px)
 
     # Ostrost: prednostne z plneho rozliseni
     sharpness_src = "proxy"
@@ -131,4 +157,6 @@ def analyze(proxy_path, box, fullres_path=None):
         "clipped_low": low,
         "subject_area": float(box["w"] * box["h"]),
         "edge_cut": edge_cut(box),
+        "light_asym": light_asym,
+        "box_aspect": box_aspect,
     }

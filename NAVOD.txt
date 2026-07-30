@@ -236,9 +236,22 @@ KROK 5 - SKLADANI SCEN A SERII                            (grouping.py)
 
 KROK 6 - SKORE A NAVRH                                     (scoring.py)
   Uvnitr kazde serie se hodnoty prevedou na rozsah 0-1 a slozi do skore
-  podle vah v config.py. Nejlepsi snimek serie dostane navrh 4 hvezdicky,
-  tesna druha 3, zbytek 1-2. Snimky pod podlahou ostrosti nebo bez zvirete
-  dostanou 1.
+  podle vah profilu. Kriteria:
+
+    - nejostrejsi misto subjektu (u zvirete je to temer vzdy oko)
+    - prumerna ostrost pres cele zvire
+    - rovnomernost osvetleni - tvar osvetlena jen z poloviny se penalizuje
+    - velikost subjektu, expozice, oriznuti okrajem
+    - u ptacich profilu se preferuje profil pred anfasem (sirsi ramecek
+      detekce = ptak z boku)
+
+  HODNOCENI JE OBRACENE (pro treni v Zoneru):
+    1 hvezdicka       nejlepsi snimek serie
+    2 hvezdicky       druhy nejlepsi
+    5 hvezdicek       rozmazane, bez zvirete - K VYMAZANI
+    bez hvezdicek     zbytek serie (zadny navrh)
+
+  Z kazde serie tak vzejde prave jedna * a prave jedna **.
 
   Vysledkem je razeni, ne rozsudek. Fotograf ho potvrzuje nebo prepisuje.
 
@@ -253,9 +266,11 @@ stisku na fotku, ne pohodli mysi.
   Sipka vpravo / vlevo    dalsi / predchozi snimek v serii
   Sipka dolu / nahoru     dalsi / predchozi serie
   Mezernik                dalsi serie
-  1 az 5                  pridel hvezdicky a oznac jako vybrany
+  1 az 4                  pridel hvezdicky a oznac jako vybrany
+                          (1 = nejlepsi, 2 = druhy nejlepsi)
+  5                       oznac K VYMAZANI (totez co X)
   0                       zrus hodnoceni
-  X                       vyrad snimek a posun se na dalsi
+  X                       vyrad snimek (5 hvezdicek) a posun se na dalsi
   P                       oznac jako vybrany bez zmeny hvezdicek
   Enter                   PRIJMI NAVRH CELE SERIE a jdi na dalsi
   Ctrl+Z                  vrat posledni rozhodnuti
@@ -285,18 +300,19 @@ Pri souboji (kapitola 7E):
 V zachrannem rezimu (kapitola 7C) plati jine klavesy:
 
   Sipky                   dalsi / predchozi zavrzeny snimek
-  R                       zachran snimek (3 hvezdicky)
+  R                       zachran snimek (2 hvezdicky)
   1 az 5                  zachran s danym poctem hvezdicek
   X                       potvrd, ze snimek je opravdu k nicemu
   Ctrl+Z                  vrat posledni rozhodnuti
 
 Ctrl+Z funguje vsude a vraci CELY posledni stisk, ne jednu vlastnost.
-Jedno stisknuti klavesy 5 zapise hvezdicky i priznak vyberu - Ctrl+Z
+Jedno stisknuti klavesy 2 zapise hvezdicky i priznak vyberu - Ctrl+Z
 vrati oboji najednou.
 
 Klavesa Enter je tezistem cele prace. Prijme navrh systemu pro celou serii
-najednou: nejlepsi snimek dostane 4 hvezdicky a priznak "vybrano", zbytek
-serie se oznaci k vyrazeni. Jedno stisknuti misto dvaceti.
+najednou: nejlepsi snimek dostane 1 hvezdicku, druhy nejlepsi 2 hvezdicky
+(oba s priznakem "vybrano"), zbytek serie 5 hvezdicek = k vymazani.
+Jedno stisknuti misto dvaceti.
 
 Realny pracovni rytmus vypada takto:
   - podivas se na nabidnuty nejlepsi snimek serie (system na nej sam skoci)
@@ -346,7 +362,9 @@ ktere udelas rucne v Prizkumniku az potom, co jsi vysledek zkontroloval.
 V ZONERU POTOM:
   1. Otevri slozku v modulu Spravce
   2. Filtruj podle hodnoceni (hvezdicky) nebo klicoveho slova
-  3. Vyber s 4-5 hvezdickami jde do dalsi upravy
+  3. Vyber s 1-2 hvezdickami jde do dalsi upravy
+     (1 = nejlepsi serie, 2 = druhy nejlepsi)
+  4. Snimky s 5 hvezdickami jsou k vymazani - zkontroluj a smaz rucne
 
 OVER SI TOTO NA PETI SNIMCICH DRIV, NEZ PUSTIS CELOU DAVKU. Zpusob, jakym
 konkretni verze Zoneru cte sidecary u RAWu daneho vyrobce, se lisi.
@@ -370,21 +388,26 @@ ktere jsi uz priradil, zustavaji nedotcene.
 
 VESTAVENE PROFILY (soubor profiles.json):
 
-  standard        Vychozi. Technicka kvalita, zvire rozumne velke v zaberu.
+  standard        Vychozi. Ostre oko, cele ostre zvire, rovnomerne
+                  osvetleni, zvire rozumne velke v zaberu.
 
   let_ptaka       Rychly subjekt, casto maly a u okraje. Velikost ani
                   umisteni se netrestaji. Podlaha ostrosti je vyssi,
                   protoze u letu je rozmaz obvykle chyba, ne zamer.
+                  Preferuje profil pred anfasem.
 
-  klidny_savec    Staticky subjekt. Vetsi duraz na velikost v zaberu
-                  a cistou expozici - u portretu je na to cas.
+  ptak_portret    Sedici nebo brodivy ptak. Ostre oko, profil pred
+                  anfasem, cela tvar ve svetle.
+
+  klidny_savec    Staticky subjekt. Vetsi duraz na velikost v zaberu,
+                  cistou expozici a rovnomerne osvetlenou tvar.
 
   spatne_svetlo   Svitani, mlha, hustý porost. Nizka podlaha ostrosti,
-                  expozice se skoro netresta.
+                  expozice ani osvetleni se skoro netresta.
 
-  umelecky        Zvlastni rezim - SYSTEM SE VZDA HODNOCENI. Vsechny
-                  snimky dostanou 3 hvezdicky, poradi zustane podle casu
-                  a nic se automaticky nevyrazuje.
+  umelecky        Zvlastni rezim - SYSTEM SE VZDA HODNOCENI. Zadny navrh
+                  hvezdicek, poradi zustane podle casu a nic se
+                  automaticky nevyrazuje.
 
 PROC MA UMELECKY PROFIL VYPNUTE RAZENI
 
@@ -402,15 +425,24 @@ Soubor profiles.json muzes volne rozsirit. Format:
     "muj_profil": {
       "label": "Nazev v rozhrani",
       "note": "Kratky popis, zobrazi se pri prepnuti",
+      "prefer_side_pose": false,
       "sharpness_floor": 10.0,
       "min_subject_area": 0.003,
       "weights": {
-        "sharpness":    1.00,
-        "subject_size": 0.20,
-        "exposure":     0.15,
-        "centering":    0.05
+        "sharpness":      1.00,
+        "sharpness_mean": 0.30,
+        "subject_size":   0.20,
+        "exposure":       0.15,
+        "centering":      0.05,
+        "light":          0.15,
+        "pose":           0.15
       }
     }
+
+  sharpness        nejostrejsi misto subjektu (obvykle oko) - hlavni vaha
+  sharpness_mean   prumerna ostrost pres cele zvire
+  light            penalizace tvare osvetlene jen z poloviny
+  pose             bonus za profil (jen s "prefer_side_pose": true)
 
 Volitelny klic "no_ranking": true vypne razeni uplne (jako u profilu
 umelecky).

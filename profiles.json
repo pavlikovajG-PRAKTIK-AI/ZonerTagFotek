@@ -1,67 +1,96 @@
 {
   "standard": {
     "label": "Standardni",
-    "note": "Vychozi nastaveni. Technicka kvalita, zvire rozumne velke v zaberu.",
+    "note": "Vychozi nastaveni. Ostre oko, cele ostre zvire, rovnomerne osvetleni.",
     "sharpness_floor": 15.0,
     "min_subject_area": 0.005,
     "weights": {
       "sharpness": 1.00,
+      "sharpness_mean": 0.35,
       "subject_size": 0.25,
       "exposure": 0.20,
-      "centering": 0.10
+      "centering": 0.10,
+      "light": 0.15
     }
   },
 
   "let_ptaka": {
     "label": "Let ptaka",
-    "note": "Rychly subjekt, casto maly v zaberu a u okraje. Velikost ani umisteni se netrestaji.",
+    "note": "Rychly subjekt, casto maly v zaberu a u okraje. Velikost ani umisteni se netrestaji. Preferuje se profil pred anfasem.",
+    "prefer_side_pose": true,
     "sharpness_floor": 20.0,
     "min_subject_area": 0.001,
     "weights": {
       "sharpness": 1.00,
+      "sharpness_mean": 0.25,
       "subject_size": 0.05,
       "exposure": 0.15,
-      "centering": 0.00
+      "centering": 0.00,
+      "light": 0.10,
+      "pose": 0.15
+    }
+  },
+
+  "ptak_portret": {
+    "label": "Ptak - portret",
+    "note": "Sedici nebo brodivy ptak. Ostre oko, profil pred anfasem, rovnomerne osvetlena tvar.",
+    "prefer_side_pose": true,
+    "sharpness_floor": 25.0,
+    "min_subject_area": 0.008,
+    "weights": {
+      "sharpness": 1.00,
+      "sharpness_mean": 0.30,
+      "subject_size": 0.30,
+      "exposure": 0.25,
+      "centering": 0.10,
+      "light": 0.20,
+      "pose": 0.25
     }
   },
 
   "klidny_savec": {
     "label": "Klidny savec",
-    "note": "Staticky subjekt. Vetsi duraz na velikost v zaberu a cistou expozici.",
+    "note": "Staticky subjekt. Vetsi duraz na velikost v zaberu, cistou expozici a cele osvetlenou tvar.",
     "sharpness_floor": 25.0,
     "min_subject_area": 0.01,
     "weights": {
       "sharpness": 1.00,
+      "sharpness_mean": 0.40,
       "subject_size": 0.40,
       "exposure": 0.30,
-      "centering": 0.15
+      "centering": 0.15,
+      "light": 0.25
     }
   },
 
   "spatne_svetlo": {
     "label": "Sero a mlha",
-    "note": "Svitani, mlha, hustý porost. Nizka podlaha ostrosti, expozice se skoro netresta.",
+    "note": "Svitani, mlha, hustý porost. Nizka podlaha ostrosti, expozice ani osvetleni se skoro netresta.",
     "sharpness_floor": 5.0,
     "min_subject_area": 0.003,
     "weights": {
       "sharpness": 1.00,
+      "sharpness_mean": 0.20,
       "subject_size": 0.20,
       "exposure": 0.05,
-      "centering": 0.05
+      "centering": 0.05,
+      "light": 0.00
     }
   },
 
   "umelecky": {
     "label": "Umelecky zamer",
-    "note": "Zamerny rozmaz, silueta, minimalismus, detail. Systém neradi ani nic nevyrazuje - vsechny snimky dostanou 3 hvezdicky a poradi zustane podle casu. Rozhoduje oko, ne algoritmus.",
+    "note": "Zamerny rozmaz, silueta, minimalismus, detail. System neradi ani nic nevyrazuje - zadny navrh hvezdicek, poradi zustane podle casu. Rozhoduje oko, ne algoritmus.",
     "no_ranking": true,
     "sharpness_floor": 0.0,
     "min_subject_area": 0.0,
     "weights": {
       "sharpness": 1.00,
+      "sharpness_mean": 0.00,
       "subject_size": 0.00,
       "exposure": 0.00,
-      "centering": 0.00
+      "centering": 0.00,
+      "light": 0.00
     }
   }
 }

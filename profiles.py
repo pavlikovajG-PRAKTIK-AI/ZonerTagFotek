@@ -80,10 +80,14 @@ def params(name):
     weights = p.get("weights", {})
     return {
         "no_ranking": bool(p.get("no_ranking", False)),
+        "prefer_side_pose": bool(p.get("prefer_side_pose", False)),
         "sharpness_floor": float(p.get("sharpness_floor", config.HARD_SHARPNESS_FLOOR)),
         "min_subject_area": float(p.get("min_subject_area", config.MIN_SUBJECT_AREA_RATIO)),
         "w_sharpness": float(weights.get("sharpness", 1.0)),
+        "w_sharpness_mean": float(weights.get("sharpness_mean", 0.30)),
         "w_subject_size": float(weights.get("subject_size", 0.25)),
         "w_exposure": float(weights.get("exposure", 0.20)),
         "w_centering": float(weights.get("centering", 0.10)),
+        "w_light": float(weights.get("light", 0.15)),
+        "w_pose": float(weights.get("pose", 0.15)),
     }

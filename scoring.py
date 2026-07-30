@@ -27,6 +27,39 @@ def normalize(values):
     return [(v - lo) / (hi - lo) for v in values]
 
 
+def normalize_weighted(values, full_range=0.15):
+    """Normalizace, ktera respektuje VELIKOST realneho rozdilu.
+
+    Prosta normalizace roztahne kazdy rozdil na 0-1: dva snimky s ostrosti
+    500 a 490 (2 %) by se lisily stejne jako 500 a 8. Tim by vedlejsi
+    kriteria (osvetleni, natoceni) nikdy nedostala slovo. Kdyz je relativni
+    rozpeti v serii mensi nez full_range, normalizovana skala se umerne
+    stlaci - stejna filozofie jako DUEL_THRESHOLD: male rozdily nemaji
+    rozhodovat vsechno.
+    """
+    if not values:
+        return []
+    lo, hi = min(values), max(values)
+    if hi - lo < 1e-9:
+        return [1.0] * len(values)
+    significance = min(1.0, ((hi - lo) / max(hi, 1e-9)) / full_range)
+    return [(v - lo) / (hi - lo) * significance for v in values]
+
+
+def normalize_absolute(values, full_range):
+    """Jako normalize_weighted, ale vyznamnost se meri ABSOLUTNIM
+    rozpetim - pro veliciny, ktere uz samy jsou na skale 0-1
+    (nerovnomernost osvetleni). Rozdil 0.04 vs 0.06 je sum, rozdil
+    0.04 vs 0.35 je tvar napul ve stinu."""
+    if not values:
+        return []
+    lo, hi = min(values), max(values)
+    if hi - lo < 1e-9:
+        return [0.0] * len(values)
+    significance = min(1.0, (hi - lo) / full_range)
+    return [(v - lo) / (hi - lo) * significance for v in values]
+
+
 def exposure_penalty(row):
     """Penalizace za vypalena svetla a zalite stiny. 0 = bez problemu."""
     high = row["clipped_high"] or 0.0
@@ -35,33 +68,61 @@ def exposure_penalty(row):
     return min(1.0, high * 8.0 + low * 3.0)
 
 
+def _column(row, name):
+    """Bezpecne precte sloupec, ktery ve starsi databazi nemusi byt."""
+    try:
+        return row[name]
+    except (KeyError, IndexError):
+        return None
+
+
 def score_burst(rows, params):
     """Spocita skore pro jednu serii podle zadanych parametru profilu.
 
     Vraci seznam (photo_id, score, auto_rating) serazeny od nejlepsiho.
+
+    Kriteria (vahy urcuje profil):
+      sharpness       - nejostrejsi misto subjektu; u divociny je to
+                        temer vzdy oko, presne oko bez dalsiho modelu
+                        najit neumime, tohle je nejblizsi merena vec
+      sharpness_mean  - prumerna ostrost pres cele zvire
+      light           - penalizace tvare osvetlene jen z poloviny
+                        (rozdil jasu leve a prave pulky subjektu)
+      pose            - jen s prefer_side_pose (ptaci): sirsi ramecek
+                        znamena profil, uzsi anfas; profil se preferuje
     """
     if not rows:
         return []
 
-    # Rezim bez razeni: algoritmus se vzda hodnoceni. Vsechny snimky
-    # dostanou stejny navrh 3 hvezdicky a poradi zustane podle casu.
-    # Je to jediny poctivy postup u zameru, ktery technicke metriky
-    # z principu nemeri - zamerny rozmaz by jinak vzdy skoncil posledni
-    # prave proto, ze je zamerny.
+    # Rezim bez razeni: algoritmus se vzda hodnoceni. Zadny navrh
+    # hvezdicek a poradi zustane podle casu. Je to jediny poctivy postup
+    # u zameru, ktery technicke metriky z principu nemeri - zamerny
+    # rozmaz by jinak vzdy skoncil posledni prave proto, ze je zamerny.
     if params.get("no_ranking"):
-        return [(r["id"], 1.0, 3) for r in rows]
+        return [(r["id"], 1.0, 0) for r in rows]
 
-    sharp_norm = normalize([r["sharpness"] or 0.0 for r in rows])
+    sharp_norm = normalize_weighted([r["sharpness"] or 0.0 for r in rows])
+    mean_norm = normalize_weighted([r["sharpness_mean"] or 0.0 for r in rows])
     size_norm = normalize([r["subject_area"] or 0.0 for r in rows])
+    pose_norm = normalize([_column(r, "box_aspect") or 1.0 for r in rows])
+    # Svetlo je uvnitr serie stejne, meni se jen natoceni zvirete vuci
+    # nemu - proto se nerovnomernost porovnava relativne v ramci serie.
+    light_norm = normalize_absolute(
+        [_column(r, "light_asym") or 0.0 for r in rows], full_range=0.25)
 
     scored = []
-    for row, s_n, sz_n in zip(rows, sharp_norm, size_norm):
+    for row, s_n, m_n, sz_n, p_n, l_n in zip(rows, sharp_norm, mean_norm,
+                                             size_norm, pose_norm, light_norm):
         value = (
             params["w_sharpness"] * s_n
+            + params["w_sharpness_mean"] * m_n
             + params["w_subject_size"] * sz_n
             - params["w_exposure"] * exposure_penalty(row)
             - params["w_centering"] * (row["edge_cut"] or 0.0)
+            - params["w_light"] * l_n
         )
+        if params.get("prefer_side_pose"):
+            value += params["w_pose"] * p_n
         scored.append([row, max(0.0, value)])
 
     # Tvrde vyrazeni. Profil "umelecky" ma podlahu na nule, takze
@@ -77,18 +138,19 @@ def score_burst(rows, params):
 
     ranked = sorted(scored, key=lambda p: p[1], reverse=True)
 
+    # Hodnoceni v Zoneru obracene: 1* = nejlepsi serie, 2** = druhy
+    # nejlepsi, 5***** = rozmazane / k vymazani. Z kazde serie se tak
+    # navrhne prave jedna * a prave jedna **; ostatni bez navrhu.
     results = []
     for rank, (row, value) in enumerate(ranked):
         if value <= 0.0:
-            rating = 1        # kandidat na vyrazeni
+            rating = 5        # rozmazane nebo prazdne - k vymazani
         elif rank == 0:
-            rating = 4        # nejlepsi ze serie
-        elif rank == 1 and value > 0.75:
-            rating = 3        # tesna druha, stoji za pohled
-        elif value > 0.5:
-            rating = 2
+            rating = 1        # nejlepsi ze serie
+        elif rank == 1:
+            rating = 2        # druhy nejlepsi
         else:
-            rating = 1
+            rating = 0        # bez navrhu
         results.append((row["id"], value, rating))
 
     return results

@@ -402,9 +402,9 @@ async function rescuePhoto(rating) {
   if (!p) return;
   await api("/api/rescue", {
     method: "POST",
-    body: JSON.stringify({ photo_id: p.id, rating: rating || 3 }),
+    body: JSON.stringify({ photo_id: p.id, rating: rating || 2 }),
   });
-  toast(`${p.filename} zachráněn (${"★".repeat(rating || 3)})`);
+  toast(`${p.filename} zachráněn (${"★".repeat(rating || 2)})`);
   removeFromSalvage();
 }
 
@@ -507,7 +507,7 @@ function renderRidge() {
     bar.className = "ridge-bar";
     const h = Math.max(4, ((p.sharpness || 0) / max) * 100);
     bar.style.height = h + "%";
-    if (p.is_empty || (p.auto_rating || 0) <= 1) bar.classList.add("dead");
+    if (p.is_empty || (p.auto_rating || 0) >= 5) bar.classList.add("dead");
     if (p.id === state.bursts[state.burstIndex]?.best_photo_id) bar.classList.add("best");
     if (i === state.photoIndex) bar.classList.add("current");
     bar.title = `${p.filename} — ostrost ${(p.sharpness || 0).toFixed(0)}`;
@@ -623,7 +623,9 @@ function renderMetrics(p) {
     ["jas", (p.exposure || 0).toFixed(0), ""],
     ["přepal", ((p.clipped_high || 0) * 100).toFixed(1) + " %", (p.clipped_high || 0) > 0.02 ? "warn" : ""],
     ["ISO", p.iso || "—", ""],
-    ["návrh", "★".repeat(p.auto_rating || 0) || "—", ""],
+    ["návrh", (p.auto_rating || 0) >= 5 ? "vymazat" :
+               ("★".repeat(p.auto_rating || 0) || "—"),
+              (p.auto_rating || 0) >= 5 ? "warn" : ""],
   );
 
   $("metrics").innerHTML = items.map(([label, value, cls]) =>
@@ -708,6 +710,8 @@ document.querySelectorAll(".star-btn").forEach((btn) => {
   const n = Number(btn.dataset.star);
   btn.onclick = () => {
     if (state.mode === "salvage") rescuePhoto(n);
+    // 5★ = k vymazání (obrácená škála pro Zoner), 1–4 = výběr
+    else if (n >= 5) decide({ rating: 5, flag: "reject" });
     else decide({ rating: n, flag: "pick" });
   };
   // podsvícení 1..n při najetí
@@ -722,9 +726,9 @@ function syncStarButtons(p) {
     b.classList.toggle("lit", Number(b.dataset.star) <= (p.rating || 0)));
 }
 
-$("btn-reject").onclick = () => { decide({ rating: 1, flag: "reject" }); nextPhoto(1); };
+$("btn-reject").onclick = () => { decide({ rating: 5, flag: "reject" }); nextPhoto(1); };
 $("btn-accept").onclick = () => acceptBurst();
-$("btn-rescue").onclick = () => rescuePhoto(3);
+$("btn-rescue").onclick = () => rescuePhoto(2);
 $("btn-dismiss").onclick = () => dismissPhoto();
 $("btn-open-burst").onclick = () => jumpToBurstOfCurrentPhoto();
 
@@ -763,8 +767,10 @@ document.addEventListener("keydown", (e) => {
       case "ArrowLeft":  nextPhoto(-1); break;
       case "ArrowDown":  openScene(state.sceneIndex + 1); break;
       case "ArrowUp":    openScene(state.sceneIndex - 1); break;
-      case "1": case "2": case "3": case "4": case "5":
+      case "1": case "2": case "3": case "4":
         decide({ rating: Number(e.key), flag: "pick" }); break;
+      case "5":
+        decide({ rating: 5, flag: "reject" }); break;
       case "Enter":
         jumpToBurstOfCurrentPhoto(); break;
       default: return;
@@ -784,7 +790,7 @@ document.addEventListener("keydown", (e) => {
         state.photoIndex = Math.max(0, state.photoIndex - 1);
         showPhoto(); renderSalvageList(); break;
       case "r": case "R":
-        rescuePhoto(3); break;
+        rescuePhoto(2); break;
       case "1": case "2": case "3": case "4": case "5":
         rescuePhoto(Number(e.key)); break;
       case "x": case "X":
@@ -800,12 +806,14 @@ document.addEventListener("keydown", (e) => {
     case "ArrowLeft":  nextPhoto(-1); break;
     case "ArrowDown":  nextBurst(); break;
     case "ArrowUp":    openBurst(state.burstIndex - 1); break;
-    case "1": case "2": case "3": case "4": case "5":
+    case "1": case "2": case "3": case "4":
       decide({ rating: Number(e.key), flag: "pick" }); break;
+    case "5":
+      decide({ rating: 5, flag: "reject" }); nextPhoto(1); break;
     case "0":
       decide({ rating: 0, flag: "" }); break;
     case "x": case "X":
-      decide({ rating: 1, flag: "reject" }); nextPhoto(1); break;
+      decide({ rating: 5, flag: "reject" }); nextPhoto(1); break;
     case "p": case "P":
       decide({ flag: "pick" }); break;
     case "Enter":

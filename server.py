@@ -56,7 +56,7 @@ class ProfileRequest(BaseModel):
 
 class RescueRequest(BaseModel):
     photo_id: int
-    rating: int = 3
+    rating: int = 2
 
 
 # ---------------------------------------------------------------------------
@@ -197,8 +197,9 @@ def decision(req: DecisionRequest):
 
 @app.post("/api/accept-burst/{burst_id}")
 def accept_burst(burst_id: int):
-    """Prijme navrh systemu pro celou serii: nejlepsi snimek dostane
-    4 hvezdicky a priznak pick, ostatni se oznaci k vyrazeni.
+    """Prijme navrh systemu pro celou serii. Hodnoceni je obracene
+    (Zoner): nejlepsi snimek dostane 1 hvezdicku, druhy nejlepsi 2,
+    vsechno ostatni 5 hvezdicek = k vymazani.
     Jedno stisknuti klavesy misto dvaceti."""
     with db.connect() as conn:
         photos = conn.execute("SELECT * FROM photos WHERE burst_id=?", (burst_id,)).fetchall()
@@ -208,9 +209,11 @@ def accept_burst(burst_id: int):
 
         for p in photos:
             if p["id"] == best:
-                rating, flag = max(4, p["auto_rating"] or 4), "pick"
+                rating, flag = 1, "pick"
+            elif (p["auto_rating"] or 0) == 2:
+                rating, flag = 2, "pick"
             else:
-                rating, flag = 1, "reject"
+                rating, flag = 5, "reject"
             db.log_decision(conn, p["id"], "rating", p["rating"], rating)
             conn.execute(
                 "UPDATE photos SET rating=?, flag=?, reviewed=1, decided_at=? WHERE id=?",
@@ -261,7 +264,7 @@ def rejected(root_id: int | None = None, limit: int = 500, include_empty: bool =
     nedostane.
     """
     with db.connect() as conn:
-        where = "WHERE (flag='reject' OR auto_rating<=1) AND rescued=0"
+        where = "WHERE (flag='reject' OR auto_rating>=5) AND rescued=0"
         params = []
         if root_id:
             where += " AND root_id=?"
@@ -376,8 +379,9 @@ def duel(burst_id: int):
 
 @app.post("/api/duel/{burst_id}/resolve/{photo_id}")
 def resolve_duel(burst_id: int, photo_id: int):
-    """Vyhlasi viteze souboje: dostane 4 hvezdicky a stane se vitezem
-    serie, porazeny dostane 2 a zustava k prohlidce."""
+    """Vyhlasi viteze souboje: dostane 1 hvezdicku (nejlepsi) a stane se
+    vitezem serie, porazeny dostane 2 (druhy nejlepsi) - z kazde serie
+    tak zustava jedna * a jedna **."""
     from datetime import datetime as _dt
 
     with db.connect() as conn:
@@ -391,7 +395,7 @@ def resolve_duel(burst_id: int, photo_id: int):
         loser = b["duel_b"] if photo_id == b["duel_a"] else b["duel_a"]
         now = _dt.now().isoformat()
 
-        for pid, rating, flag in ((photo_id, 4, "pick"), (loser, 2, "")):
+        for pid, rating, flag in ((photo_id, 1, "pick"), (loser, 2, "pick")):
             old = conn.execute("SELECT rating FROM photos WHERE id=?", (pid,)).fetchone()
             db.log_decision(conn, pid, "rating", old["rating"] if old else 0, rating)
             conn.execute(

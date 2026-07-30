@@ -22,7 +22,8 @@ MIN_SAMPLE = 10
 def measure(root_id=None, profile=None):
     """Spocita shodu mezi navrhem systemu a volbou fotografa.
 
-    Za "volbu fotografa" se bere snimek s nejvyssim hodnocenim v serii.
+    Za "volbu fotografa" se bere snimek s NEJNIZSIM kladnym hodnocenim
+    v serii - skala je obracena (1* = nejlepsi, 5***** = k vymazani).
     Serie, kde fotograf nic nevybral (vsechno vyradil), se do vzorku
     nepocitaji - tam neni co porovnavat.
     """
@@ -45,18 +46,25 @@ def measure(root_id=None, profile=None):
 
         for b in bursts:
             photos = conn.execute(
-                "SELECT id, rating, flag, score FROM photos WHERE burst_id=? "
-                "ORDER BY rating DESC, score DESC", (b["id"],)
+                "SELECT id, rating, flag, score FROM photos WHERE burst_id=?",
+                (b["id"],)
             ).fetchall()
             if not photos:
                 continue
 
-            chosen = [p for p in photos if (p["rating"] or 0) >= 2 or p["flag"] == "pick"]
+            # Vybrane = pick nebo 1-2 hvezdicky; 5 hvezdicek je k vymazani
+            chosen = [p for p in photos
+                      if (p["rating"] or 0) in (1, 2)
+                      or (p["flag"] == "pick" and (p["rating"] or 0) < 5)]
             if not chosen:
                 continue   # fotograf nevybral nic - neni co porovnavat
 
             considered += 1
-            top = chosen[0]
+            # Prvni volba: nejnizsi kladne hodnoceni, pak vyssi skore
+            top = min(chosen, key=lambda p: (
+                (p["rating"] or 0) if (p["rating"] or 0) > 0 else 9,
+                -(p["score"] or 0.0),
+            ))
             hit = top["id"] == b["best_photo_id"]
 
             # Tesny zasah: system navrhl snimek, ktery fotograf sice
