@@ -106,8 +106,21 @@ def from_blob(blob):
     return vector
 
 
-def distance(a, b):
+def distance(a, b, grid_weight=W_GRID):
     """Vzdalenost dvou popisu: 0 = shodne, 1 = uplne jina situace.
+
+    grid_weight urcuje, kolik vahy dostane KOMPOZICE (mrizka prumernych
+    barev) vedle barevneho slozeni (histogram):
+
+      pro SCENY  vychozi vaha. Jina kompozice je legitimni znamka jine
+                 situace - vetev vlevo nahore versus zvire uprostred.
+
+      pro SERIE  grid_weight=0. Uvnitr serie se zvire hybe po zaberu
+                 a mrizka se tim meni dramaticky, i kdyz je to porad ten
+                 samy pták v teze poze. Merene: mezi dvema zabery teze
+                 situace byla vzdalenost mrizky 0.52, zatimco histogram
+                 0.06. Kompozice by tu delila serie na jednotlive snimky,
+                 ve kterych uz neni co porovnavat.
 
     Vraci None, kdyz jeden z popisu chybi - volajici pak musi rozhodnout
     bez obsahu (typicky podle casu).
@@ -122,6 +135,10 @@ def distance(a, b):
     # korelace, ktera u prevazujici jedne barvy saturuje.
     d_hist = float(cv2.compareHist(hist_a.reshape(-1, 1), hist_b.reshape(-1, 1),
                                    cv2.HISTCMP_BHATTACHARYYA))
-    d_grid = min(1.0, float(np.linalg.norm(grid_a - grid_b)))
 
-    return W_HIST * d_hist + W_GRID * d_grid
+    if grid_weight <= 0:
+        return d_hist
+
+    d_grid = min(1.0, float(np.linalg.norm(grid_a - grid_b)))
+    total = W_HIST + grid_weight
+    return (W_HIST * d_hist + grid_weight * d_grid) / total

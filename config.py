@@ -81,8 +81,37 @@ SHARPNESS_TOP_CELLS = 3
 # ---------------------------------------------------------------------------
 
 # Maximalni mezera mezi snimky (v sekundach), aby patrily do jedne serie.
-# 2.0 s je bezpecne pro seriove snimani i s kratkymi pauzami.
-BURST_GAP_SECONDS = 2.0
+#
+# POZOR NA MALOU HODNOTU. Puvodni 2 s pocitaly s tim, ze serie vznika jen
+# serioveho snimani. Kdyz ale fotograf mackne spust tri krat po sobe
+# s odstupem tri a pet sekund na tehoz ptaka, rozpadne se to na tri serie
+# po jednom snimku - a v serii o jednom snimku neni co porovnavat, takze
+# vyber nejlepsiho ztraci smysl.
+#
+# Merene na 202 snimcich z Pantanalu (odstupy uvnitr scen a obrazova
+# vzdalenost na stejnych prechodech):
+#
+#   odstup    prechodu   median obrazove vzdalenosti   totez zvire
+#   do 2 s          85                         0.046        95 %
+#   2 az 5 s        27                         0.146        88 %
+#   5 az 12 s       14                         0.202        71 %
+#   12 az 30 s      22                         0.464        36 %
+#   nad 30 s        19                         0.567        26 %
+#
+# Do 12 s je obsah temer vzdy stejny, nad 12 s se rozchazi. Hranice 10 s
+# tedy lezi bezpecne uvnitr oblasti, kde jde jeste o tentyz zaber.
+BURST_GAP_SECONDS = 10.0
+
+# Prah obrazove zmeny, ktery zacina novou serii UVNITR sceny. Je tesnejsi
+# nez u scen: scena je "stejna situace", serie je "skoro stejny zaber,
+# ktery ma smysl porovnavat mezi sebou". Kdyz pták preskoci na jinou
+# vetev, je to porad ta sama scena, ale uz jiny zaber.
+#
+# Uvnitr serie se porovnava POUZE barevne slozeni, bez kompozice - viz
+# content.distance(). Merene na skutecnych snimcich: dva zabery teze
+# situace maji histogramovou vzdalenost do 0.24, jiny subjekt od 0.57.
+# Prah 0.35 lezi mezi tim.
+BURST_CONTENT_THRESHOLD = 0.35
 
 # Serie delsi nez tento pocet snimku se rozdeli, aby se v UI dala prochazet.
 MAX_BURST_SIZE = 40
@@ -92,10 +121,11 @@ MAX_BURST_SIZE = 40
 # ni spolu soutezi jen vitezove jednotlivych serii.
 SCENE_GAP_SECONDS = 180.0
 
-# Scena se deli i podle OBSAHU, ne jen podle casu. Kdyz fotograf za dve
-# minuty otoci objektiv od capa v trave na ptaky na drate, je to podle
-# casu jedna scena, ale ve skutecnosti dve uplne jine situace.
-SCENE_BY_CONTENT = True
+# Sceny i serie se deli podle OBSAHU, ne jen podle casu. Kdyz fotograf za
+# dve minuty otoci objektiv od capa v trave na ptaky na drate, je to podle
+# casu jedna scena, ale ve skutecnosti dve uplne jine situace. Vypnutim se
+# vrati puvodni chovani jen podle casu.
+GROUP_BY_CONTENT = True
 
 # Prah obrazove zmeny, ktery zacina novou scenu (viz content.py).
 # NIZSI CISLO DELI OCHOTNEJI, VYSSI SLUCUJE.

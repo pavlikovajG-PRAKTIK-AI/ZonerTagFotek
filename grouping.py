@@ -3,8 +3,11 @@ WildSort - krok 5: seskupeni do serii a scen.
 
 Dve urovne, protoze jedna nestaci:
 
-  SERIE  - davka ze serioveho snimani. Mezera nad 2 s zacina novou.
-           Uvnitr serie soutezi snimky mezi sebou.
+  SERIE  - snimky teze pozy, ktere ma smysl porovnavat mezi sebou. Novou
+           zacina bud mezera nad 12 s, nebo zmena obsahu. Uvnitr serie
+           soutezi snimky mezi sebou, takze serie o jednom snimku je
+           k nicemu - a prave ty vznikaly, dokud rozhodoval jen cas
+           s dvousekundovou mezerou.
 
   SCENA  - cela situace. Zacina novou, kdyz je mezera nad 3 minuty NEBO
            kdyz se zmeni obsah snimku. Lev u napajedla focený dvacet minut
@@ -115,14 +118,14 @@ def run(root_id=None):
 
         for row in rows:
             t = datetime.fromisoformat(row["capture_time"])
-            desc = content.from_blob(row["content"]) if config.SCENE_BY_CONTENT else None
+            desc = content.from_blob(row["content"]) if config.GROUP_BY_CONTENT else None
 
             new_scene = False
             if prev_time is not None:
                 gap = (t - prev_time).total_seconds()
                 if gap > config.SCENE_GAP_SECONDS or row["root_id"] != prev_root:
                     new_scene = True
-                elif config.SCENE_BY_CONTENT:
+                elif config.GROUP_BY_CONTENT:
                     # Musi se lisit od predchoziho snimku i od zacatku sceny.
                     # Chybi-li popis (starsi data), rozhoduje dal jen cas.
                     d_prev = content.distance(prev_desc, desc)
@@ -160,13 +163,25 @@ def run(root_id=None):
 
             group = []
             prev = None
+            prev_desc = None
             bursts_here = 0
 
             for row in scene_rows:
                 t = datetime.fromisoformat(row["capture_time"])
+                desc = (content.from_blob(row["content"])
+                        if config.GROUP_BY_CONTENT else None)
+
                 new_group = False
-                if prev is not None and (t - prev).total_seconds() > config.BURST_GAP_SECONDS:
-                    new_group = True
+                if prev is not None:
+                    if (t - prev).total_seconds() > config.BURST_GAP_SECONDS:
+                        new_group = True
+                    elif config.GROUP_BY_CONTENT:
+                        # Uvnitr serie se porovnava jen s predchozim snimkem
+                        # a jen barevne slozeni, bez kompozice: zvire se po
+                        # zaberu hybe, ale je to porad tentyz zaber.
+                        d = content.distance(prev_desc, desc, grid_weight=0.0)
+                        if d is not None and d > config.BURST_CONTENT_THRESHOLD:
+                            new_group = True
                 if len(group) >= config.MAX_BURST_SIZE:
                     new_group = True
 
@@ -177,6 +192,8 @@ def run(root_id=None):
 
                 group.append(row)
                 prev = t
+                if desc is not None:
+                    prev_desc = desc
 
             if group:
                 _flush_burst(conn, group, scene_id)
