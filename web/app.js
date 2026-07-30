@@ -1137,8 +1137,8 @@ $("btn-export").onclick = async () => {
     notes.push(`${s.pending} rozhodnutí ještě není v souborech — Zoner je ` +
                `uvidí až po tomto zápisu.`);
   } else if (s.exported) {
-    notes.push("Všechna rozhodnutí už jsou zapsaná. Zoner v nich uvidí " +
-               "aktuální stav (u otevřené složky pomůže F5).");
+    notes.push("Všechna rozhodnutí už jsou zapsaná. Zoner si změny načte " +
+               "až při přeindexování — po Ctrl+R to může chvíli trvat.");
   }
   try {
     const cal = await api("/api/calibration" + q);
@@ -1185,7 +1185,7 @@ $("export-go").onclick = async () => {
       toast(`Zapsáno ${result.written} souborů` +
             (result.failed ? `, chyb ${result.failed} (${result.message || ""})` : "") +
             (result.moved != null ? `, přesunuto ${result.moved}` : "") +
-            " — v Zoneru dej F5");
+            " — v Zoneru dej Ctrl+R a chvíli počkej na indexování");
     }
     pendingTimer = 0;   // ukazatel „nezapsáno" má zmizet hned
     refreshPending();

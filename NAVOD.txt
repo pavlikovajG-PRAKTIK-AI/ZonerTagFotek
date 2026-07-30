@@ -443,9 +443,16 @@ Nahore v liste proto sviti ukazatel "N nezapsáno", jakmile existuje
 rozhodnuti, ktere na disku jeste neni. Kdyz nesviti nic, soubory
 odpovidaji databazi.
 
-ZONER SI SIDECARY DRZI V PAMETI. Kdyz mas slozku otevrenou a zapis
-probehne az potom, Zoner stare hodnoty nezmeni sam - stiskni F5 nebo do
-slozky prejdi znovu.
+ZONER NEUKAZE NOVE HVEZDICKY OKAMZITE. Ma vlastni katalog a nacte si
+zmenene sidecary az pri preindexovani, coz u vetsi slozky trva klidne
+nekolik minut. Kdyz tedy po zapisu hvezdicky hned nevidis, neni to
+chyba - dej Ctrl+R (obnoveni slozky) a chvili pockej.
+
+Overit, ze soubory jsou v poradku, jde i bez Zoneru:
+
+    exiftool -XMP-xmp:Rating IMG_1234.xmp
+
+Kdyz tam hodnoceni je, WildSort svou praci udelal a zbytek je na Zoneru.
 
 V ZONERU POTOM:
   1. Otevri slozku v modulu Spravce
