@@ -645,6 +645,20 @@ def summary(root_id: int | None = None):
         scenes_count = conn.execute(
             f"SELECT COUNT(*) c FROM scenes {'WHERE root_id=?' if root_id else ''}",
             params).fetchone()["c"]
+
+        # Rozhodnuti, ktera jeste nejsou v souborech na disku. Bez tohoto
+        # cisla nema fotograf jak poznat, ze v Zoneru koukа na stara data:
+        # hvezdicky v rozhrani vidi, v XMP uz jsou jine. Presne tohle se
+        # stalo: zapis probehl a hodnoceni prislo az potom.
+        pending = conn.execute(
+            f"SELECT COUNT(*) c FROM photos {where} AND reviewed=1 AND ("
+            f"  exported_at IS NULL OR (decided_at IS NOT NULL "
+            f"  AND decided_at > exported_at))", params).fetchone()["c"]
+        exported = conn.execute(
+            f"SELECT COUNT(*) c FROM photos {where} AND exported_at IS NOT NULL",
+            params).fetchone()["c"]
+
     return {"total": total, "picks": picks, "rejects": rejects,
             "reviewed": reviewed, "empty": empty, "errors": errors,
-            "duplicates": dupes, "scenes": scenes_count}
+            "duplicates": dupes, "scenes": scenes_count,
+            "pending": pending, "exported": exported}

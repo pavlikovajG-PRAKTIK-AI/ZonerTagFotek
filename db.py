@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS photos (
     reviewed        INTEGER DEFAULT 0,    -- 1 = fotograf uz videl
     rescued         INTEGER DEFAULT 0,    -- 1 = vytazen zpet ze zavrzenych
     decided_at      TEXT,
+    exported_at     TEXT,                 -- kdy naposled zapsano do XMP
 
     stage           TEXT DEFAULT 'ingested',  -- ingested|proxied|analyzed|scored
     error           TEXT,
@@ -192,6 +193,7 @@ def migrate(conn):
         ("light_asym", "ALTER TABLE photos ADD COLUMN light_asym REAL"),
         ("box_aspect", "ALTER TABLE photos ADD COLUMN box_aspect REAL"),
         ("content", "ALTER TABLE photos ADD COLUMN content BLOB"),
+        ("exported_at", "ALTER TABLE photos ADD COLUMN exported_at TEXT"),
     ):
         if col not in photo_cols:
             conn.execute(ddl)

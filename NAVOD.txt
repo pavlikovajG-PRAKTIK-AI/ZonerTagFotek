@@ -435,6 +435,18 @@ Volitelne lze vyrazene snimky presunout do podslozky _rejected. Sidecar se
 presouva spolu s originalem. NIC SE NEMAZE - mazani je vedome rozhodnuti,
 ktere udelas rucne v Prizkumniku az potom, co jsi vysledek zkontroloval.
 
+HVEZDICKY SE DO SOUBORU DOSTANOU TEPRVE TIMTO ZAPISEM. Dokud ho
+nespustis, vidis hodnoceni jen v rozhrani WildSortu - v Zoneru je stary
+stav. Kdyz po zapisu jeste neco prehodnotis, musis zapsat znovu.
+
+Nahore v liste proto sviti ukazatel "N nezapsáno", jakmile existuje
+rozhodnuti, ktere na disku jeste neni. Kdyz nesviti nic, soubory
+odpovidaji databazi.
+
+ZONER SI SIDECARY DRZI V PAMETI. Kdyz mas slozku otevrenou a zapis
+probehne az potom, Zoner stare hodnoty nezmeni sam - stiskni F5 nebo do
+slozky prejdi znovu.
+
 V ZONERU POTOM:
   1. Otevri slozku v modulu Spravce
   2. Filtruj podle hodnoceni (hvezdicky) nebo klicoveho slova

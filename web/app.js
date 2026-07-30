@@ -91,6 +91,7 @@ async function pollStatus() {
     updateRoots(data.roots);
     updateWelcome();
     refreshTrust();
+    refreshPending();
     refreshFoot(data.stats);
 
     // Přechod „běží → doběhlo“: obnov seznamy, ať jsou vidět nové série
@@ -181,6 +182,28 @@ async function refreshTrust() {
     el.title = cal.verdict;
     el.classList.add(cal.rate >= 80 ? "high" : cal.rate >= 60 ? "mid" : "low");
   } catch (e) { /* kalibrace není kritická */ }
+}
+
+/* Nezapsaná rozhodnutí. Hvězdičky se do souborů dostanou teprve zápisem
+   do XMP — do té doby Zoner ukazuje stará data a fotograf nemá jak to
+   poznat. Proto je to trvale vidět v liště, ne jen v dialogu. */
+
+let pendingTimer = 0;
+
+async function refreshPending() {
+  if (Date.now() - pendingTimer < 8000) return;
+  pendingTimer = Date.now();
+
+  try {
+    const s = await api("/api/summary" + (state.rootId ? `?root_id=${state.rootId}` : ""));
+    const el = $("pending");
+    el.hidden = !s.pending;
+    if (s.pending) {
+      el.textContent = `${s.pending} nezapsáno`;
+      el.title = `${s.pending} rozhodnutí ještě není v souborech na disku. ` +
+                 `Zoner je uvidí až po „Zapsat do XMP".`;
+    }
+  } catch (e) { /* ukazatel není kritický */ }
 }
 
 /* ----------------------------------------------------------- profily */
@@ -1107,9 +1130,16 @@ $("btn-export").onclick = async () => {
   $("export-summary").innerHTML = `
     <div class="s-pick"><b>${s.picks}</b><span>vybráno</span></div>
     <div class="s-reject"><b>${s.rejects}</b><span>vyřazeno</span></div>
-    <div><b>${s.total - s.reviewed}</b><span>nevyřízeno</span></div>`;
+    <div><b>${s.pending}</b><span>nezapsáno</span></div>`;
 
   const notes = [];
+  if (s.pending) {
+    notes.push(`${s.pending} rozhodnutí ještě není v souborech — Zoner je ` +
+               `uvidí až po tomto zápisu.`);
+  } else if (s.exported) {
+    notes.push("Všechna rozhodnutí už jsou zapsaná. Zoner v nich uvidí " +
+               "aktuální stav (u otevřené složky pomůže F5).");
+  }
   try {
     const cal = await api("/api/calibration" + q);
     notes.push(cal.verdict);
@@ -1154,8 +1184,11 @@ $("export-go").onclick = async () => {
     } else {
       toast(`Zapsáno ${result.written} souborů` +
             (result.failed ? `, chyb ${result.failed} (${result.message || ""})` : "") +
-            (result.moved != null ? `, přesunuto ${result.moved}` : ""));
+            (result.moved != null ? `, přesunuto ${result.moved}` : "") +
+            " — v Zoneru dej F5");
     }
+    pendingTimer = 0;   // ukazatel „nezapsáno" má zmizet hned
+    refreshPending();
   } catch (e) {
     toast(e.message);
   } finally {

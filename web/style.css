@@ -514,6 +514,16 @@ kbd {
   cursor: default;
   background: var(--panel-2);
 }
+/* Nezapsana rozhodnuti. Zamerne vyrazne: dokud se nezapisou, Zoner
+   ukazuje stara data a fotograf nema jak to poznat. */
+.pending {
+  font-family: var(--mono); font-size: 11px;
+  padding: 5px 10px; margin-right: 4px;
+  border: 1px solid var(--pick); border-radius: 12px;
+  color: var(--pick); background: var(--pick-dim);
+  cursor: default;
+}
+
 .trust.high { color: var(--ok);     border-color: var(--ok);    background: var(--ok-dim); }
 .trust.mid  { color: var(--pick);   border-color: var(--pick);  background: var(--pick-dim); }
 .trust.low  { color: var(--reject); border-color: var(--reject);background: var(--reject-dim); }

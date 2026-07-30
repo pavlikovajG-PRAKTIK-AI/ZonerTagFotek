@@ -12,6 +12,7 @@ write_metadata().
 
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import config
@@ -62,20 +63,34 @@ def write_metadata(photo_path, rating=None, keywords=None, label=None):
     if not tags:
         return True
 
+    def run(cmd):
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "exiftool selhal")
+
     if not use_sidecar:
         # JPEG: zapis primo do souboru
-        cmd = [config.EXIFTOOL_PATH, "-overwrite_original", "-P"] + tags + [str(photo_path)]
-    else:
-        side = sidecar_path(photo_path)
-        if side.exists():
-            cmd = [config.EXIFTOOL_PATH, "-overwrite_original", "-P"] + tags + [str(side)]
-        else:
-            # Zalozeni noveho sidecaru odvozeneho z originalu
-            cmd = [config.EXIFTOOL_PATH, "-o", str(side), "-P"] + tags + [str(photo_path)]
+        run([config.EXIFTOOL_PATH, "-overwrite_original", "-P"] + tags
+            + [str(photo_path)])
+        return True
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "exiftool selhal")
+    side = sidecar_path(photo_path)
+
+    # ZAKLADANI A ZAPIS MUSI BYT DVA KROKY.
+    #
+    # Jedinym prikazem to nejde: pri "exiftool -o side.xmp -XMP:Rating=1 foto.CR3"
+    # exiftool prevezme metadata z RAWu a prirazene hodnoty se v nich ztrati -
+    # vysledny sidecar ma Rating 0. Chyba je zradna tim, ze prikaz projde bez
+    # jakekoliv hlasky a soubor vznikne, takze se pozna teprve v Zoneru,
+    # kde nejsou hvezdicky.
+    #
+    # Nejdriv se tedy sidecar zalozi jako kopie metadat z originalu a teprve
+    # potom se do NEHO zapisou hodnoty - tam uz zadne kopirovani neprobiha
+    # a prirazeni plati.
+    if not side.exists():
+        run([config.EXIFTOOL_PATH, "-o", str(side), "-P", str(photo_path)])
+
+    run([config.EXIFTOOL_PATH, "-overwrite_original", "-P"] + tags + [str(side)])
     return True
 
 
@@ -123,6 +138,12 @@ def export_decisions(root_id=None, only_reviewed=True, progress=None):
 
             try:
                 write_metadata(path, rating=row["rating"], keywords=keywords)
+                # Zaznam o zapisu. Diky nemu jde poznat, ze fotograf po
+                # zapisu jeste neco zmenil a soubory na disku uz neodpovidaji
+                # databazi - jinak by v Zoneru koukal na stara data a nemel
+                # jak to zjistit.
+                conn.execute("UPDATE photos SET exported_at=? WHERE id=?",
+                             (datetime.now().isoformat(), row["id"]))
                 written += 1
             except Exception as e:
                 failed += 1
