@@ -196,9 +196,9 @@ SCORE_WEIGHTS = {
 # Jedinecnost hvezdicek v serii
 # ---------------------------------------------------------------------------
 
-# Z kazde serie ma vzejit prave jedna * a prave jedna **. Kdyz se hvezdicka
-# priradi jine fotce, ta predchozi se musi uvolnit - jinak by v serii byly
-# dve stejne a filtr v Zoneru by ukazal obe.
+# Z kazde serie ma AUTOMATIKA navrhnout prave jednu * a prave jednu **.
+# Kdyz hvezdicku priradi jine fotce, ta predchozi se uvolni - jinak by
+# v serii byly dve stejne a filtr v Zoneru by ukazal obe.
 #
 # Klic = prirazovane hodnoceni, hodnota = kam se preradi predchozi drzitel.
 # Prazdny slovnik {} vynucovani vypne.
@@ -207,6 +207,17 @@ SCORE_WEIGHTS = {
 # vyrazeni (to je 5) ani vyber (1 a 2). Snimek zustane k dispozici, kdyby
 # se rozhodnuti jeste zmenilo.
 UNIQUE_RATINGS = {1: 3, 2: 3}
+
+# Vynucovat jedinecnost i pri RUCNIM hodnoceni?
+#
+# Vychozi NE. Kdyz fotograf vedome da jednu hvezdicku dvema snimkum teze
+# serie, je to jeho rozhodnuti - treba proto, ze jsou dobre oba a chce si
+# je oba nechat. Program mu do toho mluvit nema; jeho ukolem je navrhovat,
+# ne prepisovat cloveka.
+#
+# True vrati chovani, kdy i rucni prirazeni hvezdicky uvolni predchoziho
+# drzitele.
+UNIQUE_RATINGS_MANUAL = False
 
 # ---------------------------------------------------------------------------
 # Zapis metadat

@@ -280,11 +280,13 @@ def decision(req: DecisionRequest):
 
         conn.execute(f"UPDATE photos SET {', '.join(updates)} WHERE id=?", params)
 
-        # Hvezdicka je v serii jedinecna: predchozi drzitel se uvolni.
-        # Shodne action_id sváže obe zmeny do jedne akce, takze Ctrl+Z
-        # vrati oboji najednou.
+        # Rucni hodnoceni se do jedinecnosti hvezdicek NEPLETE: kdyz
+        # fotograf vedome da * dvema snimkum serie, je to jeho rozhodnuti.
+        # Vynucovani lze zapnout pres UNIQUE_RATINGS_MANUAL - shodne
+        # action_id pak sváže obe zmeny do jedne akce, aby je Ctrl+Z
+        # vratil najednou.
         demoted = []
-        if rating is not None:
+        if rating is not None and config.UNIQUE_RATINGS_MANUAL:
             demoted = db.enforce_unique_rating(
                 conn, row["burst_id"], rating, req.photo_id, at=now, action=action)
 
@@ -304,7 +306,12 @@ def accept_burst(burst_id: int):
     """Prijme navrh systemu pro celou serii. Hodnoceni je obracene
     (Zoner): nejlepsi snimek dostane 1 hvezdicku, druhy nejlepsi 2,
     vsechno ostatni 5 hvezdicek = k vymazani.
-    Jedno stisknuti klavesy misto dvaceti."""
+    Jedno stisknuti klavesy misto dvaceti.
+
+    Prepisuje KAZDY snimek serie, takze z ni vzejde prave jedna * a prave
+    jedna ** i bez zvlastniho uvolnovani hvezdicek. Rucni hodnoceni v teto
+    serii se tim ovsem prepise - Enter je vedomy prikaz "vezmi svuj navrh".
+    """
     with db.connect() as conn:
         photos = conn.execute("SELECT * FROM photos WHERE burst_id=?", (burst_id,)).fetchall()
         b = conn.execute("SELECT best_photo_id FROM bursts WHERE id=?", (burst_id,)).fetchone()
@@ -433,10 +440,11 @@ def rescue(req: RescueRequest):
             "WHERE id=?",
             (rating, now, req.photo_id),
         )
-        # Zachranenou fotku muze fotograf poslat i na * nebo ** - hvezdicka
-        # musi zustat v serii jedinecna.
-        demoted = db.enforce_unique_rating(
-            conn, row["burst_id"], rating, req.photo_id, at=now, action=action)
+        # Zachrana je rucni rozhodnuti, takze stejne pravidlo jako u nej.
+        demoted = []
+        if config.UNIQUE_RATINGS_MANUAL:
+            demoted = db.enforce_unique_rating(
+                conn, row["burst_id"], rating, req.photo_id, at=now, action=action)
 
     return {"ok": True, "demoted": demoted}
 
@@ -546,8 +554,13 @@ def resolve_duel(burst_id: int, photo_id: int):
             conn.execute(
                 "UPDATE photos SET rating=?, flag=?, reviewed=1, decided_at=? WHERE id=?",
                 (rating, flag, now, pid))
-            # Serie uz mohla mit * nebo ** z rucniho hodnoceni - uvolnit.
-            db.enforce_unique_rating(conn, burst_id, rating, pid, at=now, action=action)
+            # Serie uz mohla mit * nebo ** z RUCNIHO hodnoceni. Uvolnit ji
+            # smi jen tehdy, kdyz je vynucovani zapnute i pro rucni volby -
+            # jinak by souboj potichu smazal hvezdicku, kterou tam dal
+            # fotograf vedome.
+            if config.UNIQUE_RATINGS_MANUAL:
+                db.enforce_unique_rating(conn, burst_id, rating, pid,
+                                         at=now, action=action)
 
         conn.execute(
             "UPDATE bursts SET best_photo_id=?, duel_a=NULL, duel_b=NULL WHERE id=?",

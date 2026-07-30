@@ -277,7 +277,16 @@ KROK 6 - SKORE A NAVRH                                     (scoring.py)
     5 hvezdicek       rozmazane, bez zvirete - K VYMAZANI
     bez hvezdicek     zbytek serie (zadny navrh)
 
-  Z kazde serie tak vzejde prave jedna * a prave jedna **.
+  Z kazde serie tak NAVRH systemu obsahuje prave jednu * a prave jednu **.
+
+  RUCNE VSAK MUZES DAT TUTEZ HVEZDICKU KOLIKA SNIMKUM CHCES. Kdyz jsou
+  v serii dva snimky, ktere si oba chces nechat, das oba na * a program
+  ti do toho nemluvi - ani Enter na jine serii, ani souboj rucne
+  prirazenou hvezdicku nesmaze. Vyjimka je jedina: Enter v TEZE serii,
+  protoze to je vedomy prikaz "vezmi svuj navrh za celou serii".
+
+  Kdo chce opacne chovani (prirazeni * uvolni predchoziho drzitele
+  a preradi ho na ***), prepne UNIQUE_RATINGS_MANUAL v config.py na True.
 
   Vysledkem je razeni, ne rozsudek. Fotograf ho potvrzuje nebo prepisuje.
 
