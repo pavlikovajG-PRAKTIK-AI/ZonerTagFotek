@@ -1,4 +1,4 @@
-# ZonerTagovatFotek (WildSort)
+# ZonerTagFotek (WildSort)
 
 Local tool for culling large batches of wildlife photos (thousands of RAW
 frames) before further work in **Zoner Photo Studio**. It finds the animal in
