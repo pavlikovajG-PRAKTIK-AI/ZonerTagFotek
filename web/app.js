@@ -747,6 +747,10 @@ document.addEventListener("keydown", (e) => {
   }
 
   if (e.key === "?") { e.preventDefault(); $("help-sheet").showModal(); return; }
+  if (e.key === "n" || e.key === "N") {
+    e.preventDefault(); $("tools-sheet").showModal(); return;
+  }
+  if (e.key === "Backspace") { e.preventDefault(); resetBurst(false); return; }
   if (e.key === "z" || e.key === "Z") { e.preventDefault(); toggleZoom(); return; }
 
   // Souboj přebírá klávesnici, dokud se nerozhodne
@@ -898,6 +902,84 @@ $("import-go").onclick = async () => {
     toast(e.message);
   }
 };
+
+/* ---------------------------------------------------------- nástroje */
+/* Dva odlišné pojmy, které se nesmí splést:
+   ZRUŠIT HODNOCENÍ maže tvá rozhodnutí a nechává návrh systému.
+   PŘEPOČÍTAT mění návrh systému a nechává tvá rozhodnutí. */
+
+$("btn-tools").onclick = () => $("tools-sheet").showModal();
+$("tools-close").onclick = () => $("tools-sheet").close();
+
+async function resetBurst(fromDialog) {
+  if (state.mode !== "bursts") {
+    toast("Zrušit hodnocení série lze v režimu Série");
+    return;
+  }
+  const burst = state.bursts[state.burstIndex];
+  if (!burst) { toast("Není otevřená žádná série"); return; }
+  try {
+    const r = await api("/api/reset", {
+      method: "POST",
+      body: JSON.stringify({ burst_id: burst.id }),
+    });
+    if (fromDialog) $("tools-sheet").close();
+    toast(r.cleared
+      ? `Hodnocení zrušeno u ${r.cleared} snímků`
+      : "V této sérii nebylo co rušit");
+
+    // Série se vrací mezi nevyřízené, takže se při zapnutém filtru může
+    // seznam přeskládat. Držíme se proto id, ne pozice v seznamu.
+    await loadBursts();
+    const back = state.bursts.findIndex((b) => b.id === burst.id);
+    if (back >= 0) await openBurst(back, true);
+    refreshTrust();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+$("tool-reset-burst").onclick = () => resetBurst(true);
+
+$("tool-reset-root").onclick = async () => {
+  if (!state.rootId) { toast("Není načtená žádná složka"); return; }
+  const root = state.roots.find((r) => r.id === state.rootId);
+  const name = root ? (root.label || root.path) : "tento import";
+  if (!confirm(`Zrušit všechna tvá hodnocení v „${name}"?\n\n` +
+               `Fotky ani náhledy se nemažou — jen hvězdičky a příznaky.`)) return;
+  try {
+    const r = await api("/api/reset", {
+      method: "POST",
+      body: JSON.stringify({ root_id: state.rootId }),
+    });
+    $("tools-sheet").close();
+    toast(`Hodnocení zrušeno u ${r.cleared} snímků`);
+    await reloadCurrentMode();
+    refreshTrust();
+  } catch (e) {
+    toast(e.message);
+  }
+};
+
+async function reprocess(deep) {
+  if (!state.rootId) { toast("Není načtená žádná složka"); return; }
+  if (deep && !confirm(
+      "Znovu analyzovat všechny snímky?\n\n" +
+      "Detekce zvířat je nejpomalejší krok — u velkých dávek to trvá hodiny. " +
+      "Pro změnu vah v profiles.json stačí „Přepočítat\".")) return;
+  try {
+    await api(`/api/reprocess/${state.rootId}?deep=${deep ? "true" : "false"}`,
+              { method: "POST" });
+    $("tools-sheet").close();
+    toast(deep ? "Analýza spuštěna — průběh nahoře v liště"
+               : "Přepočítávám hodnocení…");
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+$("tool-rescore").onclick = () => reprocess(false);
+$("tool-reanalyze").onclick = () => reprocess(true);
 
 $("btn-export").onclick = async () => {
   const q = state.rootId ? `?root_id=${state.rootId}` : "";

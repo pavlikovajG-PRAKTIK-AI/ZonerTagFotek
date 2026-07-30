@@ -59,6 +59,11 @@ class RescueRequest(BaseModel):
     rating: int = 2
 
 
+class ResetRequest(BaseModel):
+    burst_id: int | None = None
+    root_id: int | None = None
+
+
 # ---------------------------------------------------------------------------
 # Staticke soubory a nahledy
 # ---------------------------------------------------------------------------
@@ -117,12 +122,81 @@ def start_import(req: ImportRequest):
 
 
 @app.post("/api/reprocess/{root_id}")
-def reprocess(root_id: int):
-    """Znovu spocita serie a skore bez noveho importu.
-    Uzitecne po zmene prahu v config.py."""
+def reprocess(root_id: int, deep: bool = False):
+    """Zopakuje zpracovani bez noveho importu.
+
+    deep=False  Jen preskupi serie a prepocita skore. Presne to, co je
+                potreba po zmene vah v profiles.json - profily se ctou
+                znovu, trva to sekundy a detekce se nesaha.
+
+    deep=True   Zahodi vysledky detekce a metrik a spocita je znovu.
+                Potreba jen po zmene metrik nebo prahu v config.py
+                (SHARPNESS_*, DETECTION_*). Je to nejpomalejsi krok
+                pipeline - u velkych davek zalezitost na hodiny.
+
+    Rozhodnuti fotografa zustavaji v obou pripadech nedotcena. Novy
+    import slozky by tohle NEudelal: import preskoci uz zname soubory,
+    takze by se nic neprepocitalo.
+    """
+    with db.connect() as conn:
+        if not conn.execute("SELECT 1 FROM roots WHERE id=?", (root_id,)).fetchone():
+            raise HTTPException(404, "Import nenalezen")
+        if deep:
+            # Zpet na 'proxied' - odtud analyze_step snimky znovu vezme.
+            conn.execute(
+                "UPDATE photos SET stage='proxied' "
+                "WHERE root_id=? AND stage IN ('analyzed','scored')",
+                (root_id,))
+
     if not pipeline.start_background(None, None, root_id):
         raise HTTPException(409, "Zpracovani uz bezi")
-    return {"started": True}
+    return {"started": True, "deep": deep}
+
+
+@app.post("/api/reset")
+def reset_decisions(req: ResetRequest):
+    """Zrusi hodnoceni - vrati snimky do stavu pred rozhodovanim.
+
+    Maze hvezdicky, priznaky a razitko "videno", takze serie vypada jako
+    ceve nactena. Navrh systemu (auto_rating) zustava - ten se rusi
+    prepocitanim, ne timto.
+
+    Maze i zapsana rozhodnuti v tabulce decisions. Je to zamer: kdyz je
+    hodnoceni zruseno jako omyl, nema se z nej ucit ani kalibrace.
+    """
+    if not req.burst_id and not req.root_id:
+        raise HTTPException(400, "Chybi burst_id nebo root_id")
+
+    with db.connect() as conn:
+        if req.burst_id:
+            where, params = "burst_id=?", [req.burst_id]
+            if not conn.execute("SELECT 1 FROM bursts WHERE id=?",
+                                (req.burst_id,)).fetchone():
+                raise HTTPException(404, "Serie nenalezena")
+        else:
+            where, params = "root_id=?", [req.root_id]
+            if not conn.execute("SELECT 1 FROM roots WHERE id=?",
+                                (req.root_id,)).fetchone():
+                raise HTTPException(404, "Import nenalezen")
+
+        photo_ids = [r["id"] for r in conn.execute(
+            f"SELECT id FROM photos WHERE {where}", params)]
+
+        cleared = conn.execute(
+            f"UPDATE photos SET rating=0, flag='', reviewed=0, rescued=0, "
+            f"decided_at=NULL WHERE {where} AND "
+            f"(rating!=0 OR flag!='' OR reviewed!=0 OR rescued!=0)", params
+        ).rowcount
+
+        for pid in photo_ids:
+            conn.execute("DELETE FROM decisions WHERE photo_id=?", (pid,))
+
+        if req.burst_id:
+            conn.execute("UPDATE bursts SET reviewed=0 WHERE id=?", (req.burst_id,))
+        else:
+            conn.execute("UPDATE bursts SET reviewed=0 WHERE root_id=?", (req.root_id,))
+
+    return {"ok": True, "cleared": cleared, "photos": len(photo_ids)}
 
 
 # ---------------------------------------------------------------------------

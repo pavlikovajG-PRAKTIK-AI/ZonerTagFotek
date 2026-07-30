@@ -18,6 +18,7 @@ OBSAH
   4. Prvni spusteni
   5. Popis procesu krok za krokem
   6. Prace v rozhrani - klavesove zkratky
+ 6B. Nastroje - zrusit hodnoceni a prepocitat
   7. Zapis do Zoneru
  7B. Profily - rozdilna pravidla pro rozdilne situace
  7C. Zachranny rezim - prohlidka zavrzenych
@@ -299,6 +300,8 @@ stisku na fotku, ne pohodli mysi.
   P                       oznac jako vybrany bez zmeny hvezdicek
   Enter                   PRIJMI NAVRH CELE SERIE a jdi na dalsi
   Ctrl+Z                  vrat posledni rozhodnuti
+  Backspace               zrus hodnoceni cele serie (viz 6B)
+  N                       nastroje - prepocitat, zrusit hodnoceni (6B)
   Z (nebo klik do fotky)  lupa 1:1 - skutecna velikost, vycentrovano
                           na subjekt; druhy stisk lupu vypne
   ?                       napoveda se vsemi zkratkami
@@ -361,6 +364,45 @@ CO JE VIDET NA OBRAZOVCE:
 
 Udaj "v serii" v procentech je uzitecnejsi nez absolutni ostrost - rika,
 jak si snimek stoji vuci nejlepsimu snimku TEZE serie.
+
+
+-------------------------------------------------------------------------------
+6B. NASTROJE - ZRUSIT HODNOCENI A PREPOCITAT
+-------------------------------------------------------------------------------
+
+Tlacitko se symbolem ⟳ vpravo nahore (nebo klavesa N) otevre ctyri prikazy.
+Dva z nich delaji navzajem opacnou vec a je dobre je neplest:
+
+  ZRUSIT HODNOCENI  smaze TVA rozhodnuti a nechá navrh systemu
+  PREPOCITAT        zmeni NAVRH SYSTEMU a nechá tva rozhodnuti
+
+1. ZRUSIT HODNOCENI TETO SERIE          (tlacitko, nebo Backspace)
+   Vrati serii do stavu pred rozhodovanim - smaze hvezdicky i priznaky
+   a serie se znovu objevi mezi nevyrizenymi. Hodi se, kdyz jsi zmackla
+   Enter u serie, kterou jsi chtela projit rucne. Ctrl+Z vraci jen
+   posledni stisk, tohle celou serii.
+
+2. ZRUSIT HODNOCENI CELEHO IMPORTU
+   Totez pro vsechny serie nactene slozky. Pta se na potvrzeni. Fotky,
+   nahledy ani vysledky detekce se nemazou - jen tva rozhodnuti.
+
+   Pozor: maze se i zapis v tabulce decisions, takze se z takto zrusenych
+   rozhodnuti nebude pocitat kalibrace. Je to zamer - z omylu se nema ucit.
+
+3. PREPOCITAT HODNOCENI                 (sekundy)
+   Po zmene vah v profiles.json. Preskupi serie a spocita nove skore
+   i navrhy hvezdicek. Detekce zvirat se nesaha, proto je to rychle.
+   Profily se ctou ze souboru znovu, takze staci soubor ulozit
+   a prepocitat - server se restartovat nemusi.
+
+4. ZNOVU ANALYZOVAT SNIMKY              (minuty az hodiny)
+   Po zmene metrik nebo prahu v config.py (SHARPNESS_*, DETECTION_*).
+   Zahodi vysledky detekce a mereni a spocita je znovu. Bezi na pozadi,
+   prubeh je videt v liste nahore.
+
+NOVE NACTENI SLOZKY TOHLE NEUDELA. Import uz zname soubory preskoci
+(poznava je podle hashe), takze by se nic neprepocitalo - jen by pribyla
+hlaska o nula novych snimcich. Na zmenu parametru pouzij prikaz 3 nebo 4.
 
 
 -------------------------------------------------------------------------------
