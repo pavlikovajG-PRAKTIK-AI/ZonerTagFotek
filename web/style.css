@@ -357,7 +357,13 @@ button { font-family: inherit; }
   background: rgba(255,255,255,0.85);
   border: 1px solid var(--line);
   pointer-events: none;
+  z-index: 4;
 }
+/* V lupe se napoveda schova: zvetseny snimek je poznat sam a stitek by se
+   pri posouvani odscrolloval s obsahem. Ze lupa plati i na dalsi snimek,
+   se uzivatel dozvi z napovedy (?) a hlavne z prvniho stisku sipky. */
+.frame.zoomed .zoom-hint { display: none; }
+.zoom-hint kbd { font-size: 9px; padding: 1px 4px; }
 
 /* ------------------------------------------------------------ uvítání */
 

@@ -17,6 +17,10 @@ const state = {
   profiles: [],
   hasData: false,      // existuje aspoň jedna fotka v databázi?
   jobWasRunning: false,
+  // Lupa 1:1 zapnutá natrvalo: drží se i při přechodu na další snímek,
+  // dokud ji fotograf nevypne (Z, klik, Esc). Bez toho by se u srovnávání
+  // ostrosti oka v sérii musela zapínat u každého snímku znovu.
+  zoomSticky: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -658,11 +662,18 @@ function showPhoto() {
   $("welcome").style.display = "none";
   $("frame-empty").hidden = true;
   $("zoom-hint").hidden = false;
+
+  // Lupu na dobu nacitani vypni (pozice by se pocitala ze stare velikosti),
+  // po nacteni ji vrat, pokud je zapnuta natrvalo.
   setZoom(false);
 
   const img = $("main-img");
   img.classList.remove("loaded");
-  img.onload = () => { img.classList.add("loaded"); positionSubjectBox(p); };
+  img.onload = () => {
+    img.classList.add("loaded");
+    if (state.zoomSticky) setZoom(true);
+    else positionSubjectBox(p);
+  };
   img.src = `/image/${p.id}`;
 
   renderTags(p);
@@ -769,27 +780,65 @@ function renderMetrics(p) {
 /* Na rozhodnutí „je ostré oko?" někdy nestačí přizpůsobený náhled.
    Klik nebo Z přepne na skutečnou velikost proxy. */
 
+/* LUPA ZŮSTÁVÁ ZAPNUTÁ I PŘI PŘECHODU NA DALŠÍ SNÍMEK.
+   Typická otázka při třídění série je „na kterém z nich je ostré oko?" —
+   a ta se rozhoduje při 1:1. Vypínat lupu po každé šipce by znamenalo
+   zapínat ji znovu u každého snímku. Drží se proto ve state.zoomSticky
+   a vypne se teprve klávesou Z, klikem nebo Esc.
+
+   Každý snímek se vycentruje na SVŮJ subjekt, ne na stejné souřadnice:
+   zvíře se mezi snímky dávky hýbe a pevný výřez by ho ztratil. */
+/* Posune zvetseny snimek tak, aby bylo zvire uprostred pohledu.
+   Zvire se mezi snimky davky hybe, takze se pocita pro KAZDY snimek
+   z jeho vlastniho ramecku - pevny vyrez by ho ztratil. */
+function centerOnSubject() {
+  const frame = $("frame");
+  const img = $("main-img");
+  if (!frame.classList.contains("zoomed") || !img.naturalHeight) return;
+
+  const p = state.photos[state.photoIndex];
+  void frame.scrollHeight;        // vynuti prepocet rozvrzeni
+  const cx = p && p.subject_x != null ? (p.subject_x + (p.subject_w || 0) / 2) : 0.5;
+  const cy = p && p.subject_y != null ? (p.subject_y + (p.subject_h || 0) / 2) : 0.5;
+  frame.scrollLeft = img.naturalWidth * cx - frame.clientWidth / 2;
+  frame.scrollTop = img.naturalHeight * cy - frame.clientHeight / 2;
+}
+
 function setZoom(on) {
   const frame = $("frame");
   const img = $("main-img");
   frame.classList.toggle("zoomed", on);
+  updateZoomHint();
   if (on) {
-    // vycentruj zhruba na subjekt, pokud je znám
-    const p = state.photos[state.photoIndex];
-    requestAnimationFrame(() => {
-      const cx = p && p.subject_x != null ? (p.subject_x + (p.subject_w || 0) / 2) : 0.5;
-      const cy = p && p.subject_y != null ? (p.subject_y + (p.subject_h || 0) / 2) : 0.5;
-      frame.scrollLeft = img.naturalWidth * cx - frame.clientWidth / 2;
-      frame.scrollTop = img.naturalHeight * cy - frame.clientHeight / 2;
-    });
+    // Vycentruj na subjekt. Dvakrat: hned a jeste po vyprazdneni frontu
+    // udalosti.
+    //
+    // Cteni scrollHeight vynuti prepocet rozvrzeni, takze prvni pokus
+    // obvykle staci. Pri prechodu na snimek JINEHO TVARU (na sirku ->
+    // na vysku) ale prohlizec novou vysku obrazku jeste nezna a posun by
+    // se orizl na maximum toho predchoziho - odtud opakovani.
+    //
+    // Pres requestAnimationFrame to delat nelze: v okne, ktere prohlizec
+    // nevykresluje (jina karta, skryty panel), se rAF vubec nespusti.
+    centerOnSubject();
+    setTimeout(centerOnSubject, 0);
   } else if (state.photos[state.photoIndex]) {
-    requestAnimationFrame(() => positionSubjectBox(state.photos[state.photoIndex]));
+    positionSubjectBox(state.photos[state.photoIndex]);
   }
+}
+
+/* Nápověda u fotky. V lupě je skrytá (CSS), takže tady stačí text pro
+   vypnutý stav — po vypnutí lupy má rovnou říkat, jak ji zapnout. */
+function updateZoomHint() {
+  const hint = $("zoom-hint");
+  if (!hint) return;
+  hint.innerHTML = 'Klik nebo <kbd>Z</kbd> = lupa 1:1';
 }
 
 function toggleZoom() {
   if (!$("main-img").classList.contains("loaded")) return;
-  setZoom(!$("frame").classList.contains("zoomed"));
+  state.zoomSticky = !$("frame").classList.contains("zoomed");
+  setZoom(state.zoomSticky);
 }
 
 $("main-img").onclick = toggleZoom;
@@ -919,6 +968,14 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Backspace") { e.preventDefault(); resetBurst(false); return; }
   if (e.key === "z" || e.key === "Z") { e.preventDefault(); toggleZoom(); return; }
+  // Esc jako druha cesta z lupy - ale jen kdyz neprobiha souboj, ten si
+  // Esc bere pro "rozhodnout pozdeji".
+  if (e.key === "Escape" && !state.duel && state.zoomSticky) {
+    e.preventDefault();
+    state.zoomSticky = false;
+    setZoom(false);
+    return;
+  }
 
   // Souboj přebírá klávesnici, dokud se nerozhodne
   if (state.duel) {
