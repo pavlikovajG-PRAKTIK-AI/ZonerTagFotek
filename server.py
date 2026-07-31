@@ -22,6 +22,7 @@ import organize
 import pipeline
 import profiles
 import scoring
+import finalize
 import xmp
 
 app = FastAPI(title="WildSort")
@@ -655,6 +656,26 @@ def export(req: ExportRequest):
     if not pipeline.start_export(req.root_id, req.only_reviewed, req.move_rejected):
         raise HTTPException(409, "Jina uloha uz bezi - pockej, az dobehne")
     return {"started": True}
+
+
+@app.post("/api/final-audit/{root_id}")
+def final_audit(root_id: int):
+    """Porovna finalni hvezdicky v XMP (po editaci v Zoneru) s navrhy
+    systemu a prvnim tridenim. Cte sidecary, do XMP nic nezapisuje.
+
+    Vysledek se uklada do photos.final_rating - to jsou trenovaci data
+    pro budouci model osobniho vkusu: prvni dojem (rating) versus
+    definitivni vysledek (final_rating).
+    """
+    if not xmp.exiftool_available():
+        raise HTTPException(400, "ExifTool nenalezen.")
+    with db.connect() as conn:
+        if not conn.execute("SELECT 1 FROM roots WHERE id=?", (root_id,)).fetchone():
+            raise HTTPException(404, "Import nenalezen")
+    result = finalize.audit(root_id)
+    if result.get("error"):
+        raise HTTPException(400, result["error"])
+    return result
 
 
 @app.get("/api/summary")

@@ -592,6 +592,30 @@ kbd {
 
 #tools-sheet { width: min(560px, 93vw); }
 
+/* Vysledek porovnani s finalni editaci */
+.audit-result {
+  margin: 10px 0 4px;
+  padding: 12px 14px;
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 12.5px; line-height: 1.55;
+  max-height: 260px; overflow-y: auto;
+}
+.audit-result p { margin: 0 0 8px; color: var(--text); }
+.audit-result table {
+  width: 100%; border-collapse: collapse;
+  font-family: var(--mono); font-size: 11px;
+  margin: 6px 0;
+}
+.audit-result th {
+  text-align: left; color: var(--muted); font-weight: 400;
+  font-family: var(--sans); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 8px 4px 0;
+}
+.audit-result td { padding: 2px 8px 2px 0; border-top: 1px solid var(--panel-2); }
+.audit-note { color: var(--muted); font-size: 11.5px; }
+
 .tool {
   display: flex; align-items: flex-start; gap: 14px;
   padding: 13px 0; border-top: 1px solid var(--line);

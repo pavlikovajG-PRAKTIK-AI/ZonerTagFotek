@@ -18,6 +18,7 @@ from PIL import Image, ImageOps
 
 import config
 import db
+import et
 
 
 def extract_preview(src_path, dest_path):
@@ -25,7 +26,17 @@ def extract_preview(src_path, dest_path):
 
     Zkousi postupne JpgFromRaw, PreviewImage, ThumbnailImage - podle
     vyrobce je k dispozici jina znacka.
+
+    Prednostne jde pres trvaly proces exiftoolu (et.py): start exiftoolu
+    stoji ~0,8 s a pipeline vytahuje nahled pro kazdy snimek dvakrat,
+    takze jednorazove procesy stoji u velke davky desitky minut ciste
+    rezie. Kdyz daemon nebezi, pouzije se puvodni cesta - pomalejsi,
+    ale funguje vzdy.
     """
+    via_daemon = et.extract_preview(src_path, dest_path)
+    if via_daemon is not None:
+        return via_daemon
+
     for tag in ("-JpgFromRaw", "-PreviewImage", "-ThumbnailImage"):
         cmd = [config.EXIFTOOL_PATH, "-b", tag, str(src_path)]
         try:

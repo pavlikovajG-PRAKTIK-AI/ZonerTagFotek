@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS photos (
     edge_cut        REAL,
     light_asym      REAL,                 -- nerovnomernost osvetleni subjektu 0-1
     box_aspect      REAL,                 -- pomer stran ramecku (pixely), natoceni
+    box_src         TEXT,                 -- NULL/'detected' = z detektoru,
+                                          -- 'inherited' = pujceny od souseda v serii
     content         BLOB,                 -- obrazovy popis pro rozpoznani scen
 
     score           REAL,                 -- relativni skore v ramci serie
@@ -141,13 +143,46 @@ CREATE INDEX IF NOT EXISTS idx_decisions_photo ON decisions(photo_id);
 """
 
 
+# Rezim zurnalu se voli podle toho, KDE databaze lezi - a pamatuje se,
+# aby se PRAGMA nevyhodnocovalo pri kazdem spojeni.
+#
+#   WAL       vychozi; nejrychlejsi, ale drzi vedle databaze soubory
+#             -wal a -shm. Na internim NTFS disku bez rizika.
+#
+#   TRUNCATE  pro PRENOSNY projekt na exFAT/FAT32. WAL se spoleha na
+#             sdilenou pamet mapovanou do -shm souboru; exFAT nema zadny
+#             zurnal souboroveho systemu, takze vytazeni disku ve spatne
+#             chvili muze -wal soubor (a s nim posledni rozhodnuti)
+#             zahodit. TRUNCATE je o neco pomalejsi na commit, ale po
+#             kazdem commitu je vse v hlavnim souboru databaze.
+_journal_cache = {}
+
+
+def _journal_mode():
+    key = str(config.WORKSPACE_DIR)
+    mode = _journal_cache.get(key)
+    if mode is None:
+        mode = "WAL"
+        if config.is_portable():
+            info = volume.info(config.WORKSPACE_DIR) or {}
+            if (info.get("fs") or "").upper() not in ("NTFS",):
+                mode = "TRUNCATE"
+        _journal_cache[key] = mode
+    return mode
+
+
 @contextmanager
 def connect():
     """Otevre spojeni s databazi. Vraci sqlite3.Connection s row_factory."""
     config.ensure_dirs()
     conn = sqlite3.connect(str(config.DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    mode = _journal_mode()
+    conn.execute(f"PRAGMA journal_mode={mode}")
+    if mode == "WAL":
+        # Ve WAL je synchronous=NORMAL bezpecne (commit prezije pad
+        # aplikace; o poradi se stara WAL) a znatelne rychlejsi nez FULL.
+        conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
@@ -157,6 +192,47 @@ def connect():
         raise
     finally:
         conn.close()
+
+
+def backup_db(reason="", keep=5):
+    """Zkopiruje databazi do workspace/backup. Vraci cestu, nebo None.
+
+    Vola se po dokoncenych krocich (import, export) - databaze ma ~3 MB,
+    takze zaloha nic nestoji, ale nese VSECHNA rozhodnuti fotografa.
+    Pouziva sqlite backup API, ktere je konzistentni i za behu.
+    """
+    from datetime import datetime
+
+    if not config.DB_PATH.exists():
+        return None
+    backup_dir = config.WORKSPACE_DIR / "backup"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    suffix = f"-{reason}" if reason else ""
+    dest = backup_dir / f"wildsort-{stamp}{suffix}.db"
+
+    try:
+        src = sqlite3.connect(str(config.DB_PATH), timeout=30)
+        try:
+            dst = sqlite3.connect(str(dest))
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+        finally:
+            src.close()
+    except Exception:
+        return None
+
+    # Drz jen poslednich `keep` zaloh, at slozka neroste donekonecna
+    existing = sorted(backup_dir.glob("wildsort-*.db"))
+    for old in existing[:-keep]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    return dest
 
 
 def init_db():
@@ -208,6 +284,9 @@ def migrate(conn):
         ("scene_rank", "ALTER TABLE photos ADD COLUMN scene_rank INTEGER"),
         ("light_asym", "ALTER TABLE photos ADD COLUMN light_asym REAL"),
         ("box_aspect", "ALTER TABLE photos ADD COLUMN box_aspect REAL"),
+        ("box_src", "ALTER TABLE photos ADD COLUMN box_src TEXT"),
+        ("final_rating", "ALTER TABLE photos ADD COLUMN final_rating INTEGER"),
+        ("final_checked_at", "ALTER TABLE photos ADD COLUMN final_checked_at TEXT"),
         ("content", "ALTER TABLE photos ADD COLUMN content BLOB"),
         ("exported_at", "ALTER TABLE photos ADD COLUMN exported_at TEXT"),
     ):

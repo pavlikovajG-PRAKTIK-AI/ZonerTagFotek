@@ -101,6 +101,27 @@ def score_burst(rows, params):
     if params.get("no_ranking"):
         return [(r["id"], 1.0, 0) for r in rows]
 
+    # SERIE, KDE DETEKTOR NENASEL ZVIRE ANI NA JEDNOM SNIMKU.
+    #
+    # Bud je opravdu prazdna (prach, trava, spoust v kapse), nebo je to
+    # zamer, ktery detektor z principu nevidi: silueta v protisvetle,
+    # zapad slunce, minimalisticka krajina. Algoritmus mezi tim nerozezna
+    # - a mereni na skutecne expedici ukazalo, ze VSECH 36 snimku, ktere
+    # system falesne navrhl smazat a fotografka si je nechala (1-2*),
+    # bylo prave v takovych celych "prazdnych" seriich (rada zaberu
+    # vychodu slunce).
+    #
+    # Navrhnout "5 = k vymazani" je tady predstirana jistota. Poctive je
+    # vzdat hodnoceni jako u umeleckeho profilu: zadny navrh, poradi
+    # podle casu, nic se automaticky nevyrazuje. Skutecne prazdne serie
+    # stoji fotografa par stisku navic; falesne vyrazena silueta je
+    # nenahraditelna.
+    #
+    # Jednotlive prazdne snimky UVNITR serie s detekci padaji na 5 dal -
+    # tam prazdnota skutecne znamena "zvire uz uteklo".
+    if all(r["is_empty"] for r in rows):
+        return [(r["id"], 1.0, 0) for r in rows]
+
     sharp_norm = normalize_weighted([r["sharpness"] or 0.0 for r in rows])
     mean_norm = normalize_weighted([r["sharpness_mean"] or 0.0 for r in rows])
     size_norm = normalize([r["subject_area"] or 0.0 for r in rows])
@@ -127,11 +148,21 @@ def score_burst(rows, params):
 
     # Tvrde vyrazeni. Profil "umelecky" ma podlahu na nule, takze
     # zamerne rozmazany snimek se nevyradi - jen se zaradi niz.
+    #
+    # PODLAHA OSTROSTI JE RELATIVNI, NE ABSOLUTNI. Snimek pod absolutni
+    # podlahou se vyradi jen tehdy, kdyz v serii EXISTUJE vyrazne ostrejsi
+    # alternativa. Kdyz je mekka cela serie (sero, zamerne dlouhy cas,
+    # jemna mlha), nema vyrazeni smysl - nic lepsiho k dispozici neni
+    # a rozhodnout musi fotograf. Mereno: 12 snimku, ktere si fotografka
+    # nechala (1-2*), padlo prave na absolutni podlaze v mekkych seriich.
+    max_sharp = max((r["sharpness"] or 0.0) for r in rows)
     for pair in scored:
         row = pair[0]
+        sharp = row["sharpness"] or 0.0
         if row["is_empty"]:
             pair[1] = 0.0
-        elif (row["sharpness"] or 0.0) < params["sharpness_floor"]:
+        elif (sharp < params["sharpness_floor"]
+                and sharp < config.RELATIVE_FLOOR_FRACTION * max_sharp):
             pair[1] = 0.0
         elif (row["subject_area"] or 0.0) < params["min_subject_area"]:
             pair[1] *= 0.3

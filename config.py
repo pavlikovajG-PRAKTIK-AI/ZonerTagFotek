@@ -351,6 +351,31 @@ DETECTION_CONFIDENCE_MIN = 0.30
 # Snimky bez jakekoliv detekce nad timto prahem se oznaci jako "prazdne"
 EMPTY_FRAME_CONFIDENCE = 0.20
 
+# Dedeni ramecku: kdyz detektor selze na snimku uvnitr serie, jejiz ostatni
+# snimky zvire maji, pujci se ramecek od casove nejblizsiho souseda a metriky
+# se spocitaji znovu na spravnem vyrezu.
+#
+# PROC: nejvetsi merena trida chyb systemu. Z 50 snimku navrzenych ke smazani,
+# ktere si fotografka nechala, bylo 36 "prazdnych" s jistotou detekce 0.00 -
+# zvire castecne zakryte, v protisvetle, v neobvykle poze. Mezi dvema snimky
+# jedne davky se pritom zvire nikam neztrati.
+INHERIT_BOX_IN_BURST = True
+
+# Dlazdicova detekce pro snimky, kde detektor na celem nahledu nic nenasel:
+# nahled se rozdeli na 2x2 dlazdice s presahem a detekce probehne na kazde
+# zvlast. Male zvire v siroke krajine zabira na 1600px nahledu par desitek
+# pixelu - na ctvrtinovem vyrezu je pro model dvakrat vetsi.
+# Stoji to 4x cas detekce, ale JEN u snimku bez nalezu (typicky ~10 % davky).
+TILED_RETRY_EMPTY = True
+TILE_OVERLAP = 0.15
+
+# Vyrovnani jasu (CLAHE) pred merenim ostrosti u tmavych vyrezu. Ve tme je
+# Laplacian utlumeny a poradi v serii pak ridi spis sum nez skutecna ostrost -
+# profil "malo svetla" mel proto nejnizsi shodu s vyberem fotografky (68 %).
+# Expozicni metriky se pocitaji dal z puvodniho obrazu, vyrovnava se jen
+# vstup pro ostrost.
+CLAHE_BELOW_EXPOSURE = 55.0
+
 # ---------------------------------------------------------------------------
 # Hodnoceni
 # ---------------------------------------------------------------------------
@@ -358,6 +383,14 @@ EMPTY_FRAME_CONFIDENCE = 0.20
 # Absolutni spodni hranice ostrosti (variance Laplaciánu na vyrezu subjektu).
 # Slouzi POUZE k odfiltrovani uplnych zmetku, ne k vyberu nejlepsich.
 HARD_SHARPNESS_FLOOR = 15.0
+
+# Podlaha ostrosti plati jen RELATIVNE: snimek pod absolutni podlahou se
+# vyradi jen tehdy, kdyz je zaroven pod timto podilem nejostrejsiho snimku
+# SVE serie. Kdyz je mekka cela serie (sero, zamerny dlouhy cas), zadna
+# ostrejsi alternativa neexistuje a vyrazeni by bylo predstiranou jistotou.
+# Mereno na expedici: 12 snimku, ktere si fotografka nechala, padlo na
+# absolutni podlaze prave v takovych seriich.
+RELATIVE_FLOOR_FRACTION = 0.10
 
 # Minimalni podil plochy subjektu na snimku. Pod timto je zvire prilis male.
 MIN_SUBJECT_AREA_RATIO = 0.005

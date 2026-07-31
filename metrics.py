@@ -129,6 +129,22 @@ def analyze(proxy_path, box, fullres_path=None):
     mean, high, low = exposure_stats(gray_crop)
     light_asym = light_asymmetry(gray_crop)
 
+    # VE TME SE OSTROST MERI PO VYROVNANI JASU (CLAHE).
+    #
+    # Laplacian meri rozdily jasu - v podexponovanem vyrezu jsou vsechny
+    # rozdily male, takze i perfektne zaostreny snimek da nizke cislo a
+    # poradi v serii pak ridi spis sum nez skutecna ostrost. Prave proto
+    # mel profil "malo svetla" nejnizsi shodu s vyberem fotografky (68 %).
+    # CLAHE roztahne lokalni kontrast a rozdil ostry/rozmazany se vrati.
+    #
+    # Vyrovnava se JEN vstup pro ostrost. Expozicni metriky (jas, prepal,
+    # stiny) se pocitaji dal z puvodniho obrazu - maji rikat, jak snimek
+    # vypada, ne jak by vypadal po uprave.
+    dark = mean < config.CLAHE_BELOW_EXPOSURE
+    if dark:
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray_crop = clahe.apply(gray_crop)
+
     # Pomer stran ramecku subjektu V PIXELECH (normalizovane souradnice
     # by u nectvercoveho snimku lhaly). Ptak z profilu je siroky, anfas
     # uzky - slouzi jako priblizny ukazatel natoceni.
@@ -146,6 +162,11 @@ def analyze(proxy_path, box, fullres_path=None):
         if full is not None and full.shape[0] > img.shape[0]:
             full_crop = crop_subject(full, box)
             gray_full = cv2.cvtColor(full_crop, cv2.COLOR_BGR2GRAY)
+            if dark:
+                # stejne vyrovnani jako u nahledu, at jsou hodnoty
+                # uvnitr serie srovnatelne
+                gray_full = cv2.createCLAHE(
+                    clipLimit=2.0, tileGridSize=(8, 8)).apply(gray_full)
             peak, avg = peak_sharpness(gray_full)
             sharpness_src = "full"
 

@@ -26,6 +26,7 @@ OBSAH
  7D. Sceny - druha uroven nad seriemi
  7E. Souboj dvou nejlepsich
  7F. Kalibrace - nakolik se systemu da verit
+ 7G. Zpetna vazba po finalni editaci v Zoneru
   8. Nastaveni a ladeni
   9. Reseni problemu
  10. Zalohovani
@@ -313,6 +314,18 @@ KROK 3 - DETEKCE ZVIRETE                                    (detect.py)
   jen prach a kere), se oznaci priznakem "prazdny" a propadnou na konec
   poradi. U expedicnich davek to typicky odstrani znatelnou cast materialu
   jeste driv, nez se na ni fotograf podiva.
+
+  DVE POJISTKY PROTI FALESNE "PRAZDNYM" SNIMKUM (nejcastejsi chyba
+  detekce, merena na skutecnych datech):
+
+    DLAZDICE   Kdyz se na celem nahledu nic nenajde, detekce probehne
+               znovu na ctvrtinach snimku. Male zvire v siroke krajine
+               je na vyrezu pro model dvakrat vetsi a casto se najde.
+
+    DEDENI     Kdyz detekce selze na snimku uvnitr serie, jejiz ostatni
+               snimky zvire maji, pujci se ramecek od nejblizsiho
+               souseda - zvire se mezi dvema snimky davky nikam
+               neztrati. Metriky se pak spocitaji na spravnem vyrezu.
 
   Bez modelu se pouzije stredovych 60 % snimku. Neni to detekce, jen
   rozumny predpoklad.
@@ -690,6 +703,28 @@ U expedice s vyraznym umeleckym zamerem to neni formalita. Pocitej, ze
 nekolik nejlepsich snimku cele cesty bude prave tam.
 
 
+
+
+-------------------------------------------------------------------------------
+7G. ZPETNA VAZBA PO FINALNI EDITACI V ZONERU
+-------------------------------------------------------------------------------
+
+Trideni ve WildSortu je predvyber. Ktere snimky se skutecne dostanou
+"na prvni stranku", ukaze az dalsi prace v Zoneru - a Zoner zapisuje
+zmenene hvezdicky do tychz XMP souboru.
+
+Az v Zoneru dokoncis editaci davky, otevri Nastroje a klikni na
+"Porovnat s finalni editaci". System precte hvezdicky z XMP zpatky
+a ukaze:
+
+  - kolik snimku skoncilo na prvni strance (finalni 1*)
+  - kolik hodnoceni jsi pri editaci zmenila (povyseno / ponizeno)
+  - kolik navrhu systemu prezilo az do finale
+
+Nic se pri tom nemeni - v XMP ani ve tvem hodnoceni. Finalni stav se
+jen ulozi vedle puvodnich rozhodnuti (sloupec final_rating). Prave
+dvojice "prvni dojem pri trideni" versus "definitivni vysledek" je
+nejcennejsi surovina pro budouci model osobniho vkusu (kapitola 12).
 
 
 Vse podstatne je v souboru config.py, s komentarem u kazde hodnoty.

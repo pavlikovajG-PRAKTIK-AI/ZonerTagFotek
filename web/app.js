@@ -1130,6 +1130,44 @@ async function reprocess(deep) {
 $("tool-rescore").onclick = () => reprocess(false);
 $("tool-reanalyze").onclick = () => reprocess(true);
 
+/* Porovnání s finální editací: přečte hvězdičky z XMP zpět a srovná je
+   s návrhem systému i prvním tříděním. Vlastní ošetření chyb — 404 tady
+   znamená "server ještě nezná endpoint" (starý proces), ne zmizelou sérii,
+   takže se NESMÍ spustit obnova seznamu přes handleStale. */
+$("tool-final-audit").onclick = async () => {
+  const btn = $("tool-final-audit");
+  const out = $("audit-result");
+  btn.disabled = true;
+  btn.textContent = "Čtu XMP…";
+  out.hidden = true;
+  try {
+    const r = await api(`/api/final-audit/${state.rootId}`, { method: "POST" });
+    const rows = (r.changes || []).map((c) =>
+      `<tr><td>${escapeHtml(c.filename)}</td><td>${"★".repeat(c.navrh) || "—"}</td>` +
+      `<td>${"★".repeat(c.trideni)}</td><td><b>${"★".repeat(c.final)}</b></td></tr>`).join("");
+    out.innerHTML = `
+      <p><b>${r.checked}</b> snímků porovnáno ·
+         <b>${r.first_page}</b> na „první stránce" (1★) ·
+         beze změny <b>${r.confirmed}</b> ·
+         povýšeno <b>${r.promoted}</b> · poníženo <b>${r.demoted}</b></p>
+      <p>Návrhy systému (1★), které přežily finální editaci:
+         <b>${r.system_survived}/${r.system_proposals}</b>
+         ${r.system_rate != null ? `(${r.system_rate} %)` : ""}</p>
+      ${rows ? `<table><tr><th>soubor</th><th>návrh</th><th>třídění</th>
+                <th>finál</th></tr>${rows}</table>` : ""}
+      <p class="audit-note">Finální hodnocení je uloženo (final_rating) —
+         poslouží jako tréninková data pro model tvého vkusu.</p>`;
+    out.hidden = false;
+  } catch (e) {
+    toast(e.status === 404
+      ? "Funkce bude dostupná po restartu serveru (běží stará verze)."
+      : "Porovnání selhalo: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Porovnat";
+  }
+};
+
 /* ------------------------------------ roztřídění do složek podle scén */
 /* Jediná akce v celém systému, která hýbe originály. Proto se nejdřív
    ukáže, co přesně udělá, a teprve pak se něco přesune. */

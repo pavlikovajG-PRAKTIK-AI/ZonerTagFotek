@@ -109,8 +109,35 @@ var FOLDER = (function () {
   return p.substring(0, p.lastIndexOf("\\"));
 })();
 
-var PYTHON = shell.ExpandEnvironmentStrings(
-  "%LOCALAPPDATA%\\Programs\\Python\\Python312\\python.exe");
+/* Python se HLEDA, nezadava se pevnou cestou. Pevna cesta na jednu verzi
+   (drive Python312) prestala platit s kazdou aktualizaci Pythonu a launcher
+   pak hlasil "Python chybi" na stroji, kde Python normalne bezel.
+   Poradi: PATH -> py.exe -> obvykla mista od nejnovejsi verze. */
+function findPython() {
+  try {
+    var probe = shell.Exec('cmd /c where python 2>nul');
+    while (probe.Status === 0) { }
+    var found = probe.StdOut.ReadLine();
+    if (found && fso.FileExists(found)) return found;
+  } catch (e) { }
+  try {
+    var probe2 = shell.Exec('cmd /c where py 2>nul');
+    while (probe2.Status === 0) { }
+    var launcher = probe2.StdOut.ReadLine();
+    if (launcher && fso.FileExists(launcher)) return launcher;
+  } catch (e) { }
+  var versions = ["314", "313", "312", "311", "310"];
+  for (var i = 0; i < versions.length; i++) {
+    var p = shell.ExpandEnvironmentStrings(
+      "%LOCALAPPDATA%\\Programs\\Python\\Python" + versions[i] + "\\python.exe");
+    if (fso.FileExists(p)) return p;
+    p = "C:\\Python" + versions[i] + "\\python.exe";
+    if (fso.FileExists(p)) return p;
+  }
+  return "";
+}
+
+var PYTHON = findPython();
 var EXIFTOOL = shell.ExpandEnvironmentStrings(
   "%LOCALAPPDATA%\\Programs\\ExifTool\\exiftool.exe");
 var MODEL = FOLDER + "\\models\\md_v5a.0.0.pt";
@@ -148,20 +175,10 @@ function openUI() {
 
 /* --------------------------------------------------- kontrola prostredi */
 
-var havePython = fso.FileExists(PYTHON);
+var havePython = PYTHON !== "" && fso.FileExists(PYTHON);
 var haveExif = fso.FileExists(EXIFTOOL);
 var haveModel = fso.FileExists(MODEL);
 var haveBat = fso.FileExists(BAT);
-
-// Python nemusi byt jen na miste z instalace pres winget - zkus i PATH.
-if (!havePython) {
-  try {
-    var probe = shell.Exec("python -c \"import sys; print(sys.executable)\"");
-    while (probe.Status === 0) { }
-    var found = probe.StdOut.ReadAll().replace(/[\r\n]/g, "");
-    if (found && fso.FileExists(found)) { PYTHON = found; havePython = true; }
-  } catch (e) { }
-}
 
 mark("e-py", havePython, havePython ? "nalezen" : "chybí");
 mark("e-et", haveExif, haveExif ? "nalezen" : "chybí — nutný");

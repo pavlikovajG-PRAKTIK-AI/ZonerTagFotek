@@ -109,6 +109,61 @@ def last_error():
     return _error
 
 
+def _animals(results, index=0):
+    """Vytahne detekce tridy 'zvire' z vysledku modelu."""
+    boxes = (results.xyxyn[index].cpu().numpy()
+             if len(results.xyxyn) > index else np.empty((0, 6)))
+    # MegaDetector trida 0 = zvire, 1 = clovek, 2 = vozidlo
+    return [b for b in boxes if int(b[5]) == 0]
+
+
+def _tiled_retry(model, image_path):
+    """Druhy pokus na dlazdicich 2x2 s presahem.
+
+    Male zvire v siroke krajine zabira na 1600px nahledu jen par desitek
+    pixelu - pod rozlisovaci schopnost modelu. Na ctvrtinovem vyrezu je
+    dvakrat vetsi a detekce ho casto najde. Bezi jen u snimku, kde detekce
+    na celku nic nenasla, takze cena je 4x detekce u ~10 % davky.
+
+    Vraci nejlepsi nalez v souradnicich CELEHO snimku, nebo None.
+    """
+    import cv2
+
+    img = cv2.imread(str(image_path))
+    if img is None:
+        return None
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    h, w = img.shape[:2]
+    ov = config.TILE_OVERLAP
+
+    tiles = []
+    origins = []
+    for gy in range(2):
+        for gx in range(2):
+            x1 = int(max(0, (gx * 0.5 - ov * 0.5) * w))
+            y1 = int(max(0, (gy * 0.5 - ov * 0.5) * h))
+            x2 = int(min(w, ((gx + 1) * 0.5 + ov * 0.5) * w))
+            y2 = int(min(h, ((gy + 1) * 0.5 + ov * 0.5) * h))
+            tiles.append(img[y1:y2, x1:x2])
+            origins.append((x1, y1, x2 - x1, y2 - y1))
+
+    results = model(tiles)
+
+    best = None
+    for i, (ox, oy, ow, oh) in enumerate(origins):
+        for b in _animals(results, i):
+            conf = float(b[4])
+            if best is None or conf > best["conf"]:
+                # prepocet z dlazdice do souradnic celeho snimku
+                bx1 = (ox + float(b[0]) * ow) / w
+                by1 = (oy + float(b[1]) * oh) / h
+                bx2 = (ox + float(b[2]) * ow) / w
+                by2 = (oy + float(b[3]) * oh) / h
+                best = {"conf": conf, "x": bx1, "y": by1,
+                        "w": bx2 - bx1, "h": by2 - by1}
+    return best
+
+
 def detect(image_path):
     """Vrati nejjistejsi detekci zvirete jako slovnik.
 
@@ -124,12 +179,15 @@ def detect(image_path):
                 "is_empty": 0, "fallback": True}
 
     results = model(str(image_path))
-    boxes = results.xyxyn[0].cpu().numpy() if len(results.xyxyn) else np.empty((0, 6))
-
-    # MegaDetector trida 0 = zvire, 1 = clovek, 2 = vozidlo
-    animals = [b for b in boxes if int(b[5]) == 0]
+    animals = _animals(results)
 
     if not animals:
+        # Druha sance na dlazdicich - male zvire v siroke krajine
+        if config.TILED_RETRY_EMPTY:
+            found = _tiled_retry(model, image_path)
+            if found and found["conf"] >= config.EMPTY_FRAME_CONFIDENCE:
+                found.update(is_empty=0, fallback=False, tiled=True)
+                return found
         return {"conf": 0.0, "x": 0.20, "y": 0.20, "w": 0.60, "h": 0.60,
                 "is_empty": 1, "fallback": False}
 
