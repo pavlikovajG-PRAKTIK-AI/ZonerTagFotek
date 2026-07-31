@@ -97,6 +97,19 @@
       <img id="main-img" alt="Aktuální snímek">
       <div class="subject-box" id="subject-box" hidden title="Zde systém našel zvíře a měřil ostrost"></div>
       <div class="frame-tags" id="frame-tags"></div>
+      <!-- Hodnocení přímo u okraje snímku: oko zůstává na fotce, nemusí
+           uhýbat dolů k odečtům. Nahoře návrh systému, dole moje hvězdičky. -->
+      <div class="frame-rating" id="frame-rating" hidden>
+        <div class="fr-block">
+          <span class="fr-label">návrh</span>
+          <span class="fr-stars" id="fr-auto">—</span>
+        </div>
+        <div class="fr-sep"></div>
+        <div class="fr-block">
+          <span class="fr-label">moje</span>
+          <span class="fr-stars fr-mine" id="fr-mine">—</span>
+        </div>
+      </div>
       <div class="zoom-hint" id="zoom-hint" hidden>Klik nebo <kbd>Z</kbd> = lupa 1:1</div>
     </div>
 

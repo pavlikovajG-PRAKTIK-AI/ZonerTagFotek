@@ -445,6 +445,7 @@ function showEmpty(text) {
   $("strip").innerHTML = "";
   $("subject-box").hidden = true;
   $("zoom-hint").hidden = true;
+  $("frame-rating").hidden = true;
   updateWelcome();
 }
 
@@ -666,6 +667,7 @@ function showPhoto() {
 
   renderTags(p);
   renderMetrics(p);
+  renderFrameRating(p);
   syncStarButtons(p);
 
   // zvýraznění v pásu i ve hřbetu bez úplného překreslení
@@ -690,6 +692,26 @@ function positionSubjectBox(p) {
   box.style.top    = (rect.top - frame.top + p.subject_y * rect.height) + "px";
   box.style.width  = (p.subject_w * rect.width) + "px";
   box.style.height = (p.subject_h * rect.height) + "px";
+}
+
+/* Hodnocení u pravého okraje snímku — návrh systému a moje hvězdičky,
+   bez uhýbání pohledem dolů k odečtům. Obrácená škála: 1★ nejlepší,
+   5★ k vymazání (červeně), 0 = bez návrhu (—). */
+function renderFrameRating(p) {
+  const box = $("frame-rating");
+  const paint = (el, n) => {
+    el.classList.remove("fr-none", "fr-reject");
+    if (!n) {
+      el.textContent = "—";
+      el.classList.add("fr-none");
+    } else {
+      el.textContent = "★".repeat(n);
+      if (n === 5) el.classList.add("fr-reject");
+    }
+  };
+  paint($("fr-auto"), p.auto_rating || 0);
+  paint($("fr-mine"), p.rating || 0);
+  box.hidden = false;
 }
 
 function renderTags(p) {
@@ -734,9 +756,9 @@ function renderMetrics(p) {
     ["jas", (p.exposure || 0).toFixed(0), ""],
     ["přepal", ((p.clipped_high || 0) * 100).toFixed(1) + " %", (p.clipped_high || 0) > 0.02 ? "warn" : ""],
     ["ISO", p.iso || "—", ""],
-    ["návrh", (p.auto_rating || 0) >= 5 ? "vymazat" :
-               ("★".repeat(p.auto_rating || 0) || "—"),
-              (p.auto_rating || 0) >= 5 ? "warn" : ""],
+    // "návrh" tu už není: hvězdičky systému i moje jsou vidět u pravého
+    // okraje snímku (renderFrameRating), takže by to byl jen dvojí údaj
+    // zabírající místo, které patří fotce.
   );
 
   $("metrics").innerHTML = items.map(([label, value, cls]) =>

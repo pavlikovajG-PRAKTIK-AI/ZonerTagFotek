@@ -23,7 +23,9 @@
   --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
 
   --radius: 6px;
-  --strip-h: 112px;
+  /* Pas nahledu: mensi vyska = vetsi fotka. Nahled 56 px na vysku jde
+     jeste pohodlne kliknout a rozpoznat na nem zaber. */
+  --strip-h: 82px;
 }
 
 * { box-sizing: border-box; }
@@ -317,6 +319,37 @@ button { font-family: inherit; }
 .tag.reject { border-color: var(--reject); color: var(--reject); }
 .tag.empty  { border-color: var(--muted);  color: var(--muted); }
 
+/* Hodnocení u pravého okraje snímku. Oko fotografa je na fotce —
+   návrh i vlastní hvězdičky musí být vidět bez uhýbání dolů k odečtům.
+   Obrácená škála: 1★ = nejlepší, 5★ = k vymazání (červeně). */
+.frame-rating {
+  position: absolute; right: 14px; top: 50%;
+  transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px;
+  padding: 12px 12px;
+  background: rgba(255,255,255,0.93);
+  border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(60,50,30,0.15);
+  pointer-events: none;
+}
+.fr-block { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.fr-label {
+  font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted);
+}
+.fr-stars {
+  font-family: var(--mono); font-size: 15px; line-height: 1.2;
+  color: var(--pick-bright);
+  white-space: nowrap;
+}
+.fr-stars.fr-none { color: var(--muted); font-size: 13px; }
+.fr-stars.fr-reject { color: var(--reject); }
+.fr-mine { font-size: 19px; }
+.fr-sep { width: 26px; border-top: 1px solid var(--line); }
+/* V lupě překáží nad detaily — schovat stejně jako rámeček zvířete */
+.frame.zoomed .frame-rating { display: none; }
+
 .zoom-hint {
   position: absolute; right: 14px; bottom: 12px;
   font-size: 11px; color: var(--muted);
@@ -355,11 +388,14 @@ button { font-family: inherit; }
 
 .ridge {
   display: flex; align-items: flex-end; gap: 2px;
-  height: 48px; padding: 4px 12px;
+  height: 30px; padding: 3px 12px 0;
   background: var(--panel);
   border-top: 1px solid var(--line);
 }
-.ridge:empty { display: none; }
+/* Prazdny hrbet (serie o jednom snimku) se SMRSKNE, ale zustane v mrizce.
+   Pri display:none z mrizky vypadl a odecty pak zdedily radek pasu nahledu -
+   misto 39 px merily 82 a fotka o ten rozdil prisla. */
+.ridge:empty { height: 0; padding: 0; border-top: 0; overflow: hidden; }
 
 .ridge-bar {
   flex: 1; min-width: 2px;
@@ -387,7 +423,7 @@ button { font-family: inherit; }
 .cell { position: relative; flex: 0 0 auto; cursor: pointer; }
 
 .cell img {
-  height: 80px; width: auto; display: block;
+  height: 56px; width: auto; display: block;
   border: 2px solid var(--panel-3); border-radius: 3px;
   background: var(--panel-3);
   transition: border-color .1s;
@@ -410,32 +446,45 @@ button { font-family: inherit; }
 
 /* ------------------------------------------------------------ odečty */
 
+/* Odecty jsou zamerne NA JEDNOM RADKU a nizke.
+   Kazdy usetreny pixel tady je pixel navic pro fotku - a hodnoceni
+   uz je videt u okraje snimku, takze se sem oko nemusi vracet.
+   Popisek proto stoji VEDLE hodnoty, ne nad ni (pulka vysky). */
 .readout {
   display: flex; justify-content: space-between; align-items: center;
-  gap: 20px; padding: 10px 16px;
+  gap: 16px; padding: 5px 14px;
   background: var(--panel); border-top: 1px solid var(--line);
-  flex-wrap: wrap;
+  flex-wrap: nowrap; min-height: 0;
+  overflow-x: auto;
 }
 
-.metrics { display: flex; gap: 22px; margin: 0; font-family: var(--mono); font-size: 12.5px; flex-wrap: wrap; }
-.metrics div { display: flex; flex-direction: column; gap: 3px; }
+.metrics {
+  display: flex; gap: 14px; margin: 0;
+  font-family: var(--mono); font-size: 12px;
+  flex-wrap: nowrap; align-items: baseline;
+  /* Bez pevne vysky radku si monospace font bere okolo 28 px na radek
+     a odecty pak zbytecne kradou vysku fotce. */
+  line-height: 1.25;
+}
+.metrics div { display: flex; flex-direction: row; align-items: baseline; gap: 4px; }
 .metrics dt {
-  color: var(--muted); font-size: 9.5px;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); font-size: 9px;
+  letter-spacing: 0.06em; text-transform: uppercase;
   font-family: var(--sans);
 }
 .metrics dd { margin: 0; }
 .metrics dd.warn { color: var(--reject); }
 .metrics dd.good { color: var(--ok); }
 
-.right-controls { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.right-controls { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; }
 
-.actions { display: flex; align-items: center; gap: 8px; }
+.actions { display: flex; align-items: center; gap: 6px; }
+.actions .btn { padding: 5px 10px; }
 
-.star-row { display: flex; gap: 1px; margin-right: 4px; }
+.star-row { display: flex; gap: 1px; margin-right: 2px; }
 .star-btn {
-  font-size: 18px; line-height: 1;
-  padding: 5px 3px;
+  font-size: 17px; line-height: 1;
+  padding: 2px 3px;
   background: transparent; border: 0;
   color: var(--line); cursor: pointer;
   transition: color .1s, transform .08s;
@@ -452,7 +501,7 @@ button { font-family: inherit; }
 }
 #profile-select {
   font-family: inherit; font-size: 12px;
-  padding: 6px 8px; max-width: 170px;
+  padding: 4px 7px; max-width: 160px;
   background: var(--panel); color: var(--text);
   border: 1px solid var(--line); border-radius: var(--radius);
   cursor: pointer;
