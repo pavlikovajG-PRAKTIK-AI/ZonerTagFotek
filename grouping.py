@@ -90,8 +90,12 @@ def run(root_id=None):
             params.append(root_id)
 
         rows = conn.execute(
+            # Nacitaji se i NAMERENE hodnoty, ne jen EXIF: profil serie se
+            # rozhoduje podle toho, co je na snimku videt (viz exif_profile).
             f"SELECT id, root_id, capture_time, filename, shutter, focal_length, "
-            f"iso, content FROM photos {where} ORDER BY capture_time, filename",
+            f"iso, content, subject_area, exposure, clipped_low, clipped_high, "
+            f"edge_cut, detection_conf, is_empty "
+            f"FROM photos {where} ORDER BY capture_time, filename",
             params
         ).fetchall()
 

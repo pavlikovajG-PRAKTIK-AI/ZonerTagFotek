@@ -404,6 +404,21 @@ UNIQUE_RATINGS_MANUAL = False
 # Do RAW souboru se NIKDY nezapisuje. Vse jde do XMP sidecar souboru.
 WRITE_SIDECAR_ONLY = True
 
+# Neprepisovat rucni hodnoceni ze Zoneru nulou.
+#
+# Sidecar uz muze existovat s hvezdickami, ktere fotograf pridelil v Zoneru.
+# Kdyz u tehoz snimku nema WildSort zadnou hvezdicku (0), znamena to "nemam
+# nazor", ne "smaz, co tam je" - zapis nuly by tichou cestou zahodil lidske
+# rozhodnuti. Hvezdicka 1-5 z WildSortu se zapisuje normalne, to uz je
+# vedomy vyber.
+#
+# Ostatni pole se nemeni nikdy: vlastni klicova slova, barevne stitky,
+# popisky, GPS ani nastaveni vyvolani se nedotykaji. Z klicovych slov se
+# odebiraji jen vlastni znacky WildSort:Pick, WildSort:Reject a
+# WildSort:Empty. Snimky, ktere jsi ve WildSortu neprosla, se neexportuji
+# vubec, takze jejich hodnoceni ze Zoneru zustava.
+PRESERVE_EXISTING_RATINGS = True
+
 # Klicova slova pridavana automaticky
 KEYWORD_PICK = "WildSort:Pick"
 KEYWORD_REJECT = "WildSort:Reject"

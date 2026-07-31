@@ -23,6 +23,15 @@ const $ = (id) => document.getElementById(id);
 
 /* ------------------------------------------------------------ pomocné */
 
+/* Chyba se pozna podle stavu, aby na ni sla reagovat cileně - hlavne 404,
+   ktera znamena "tenhle záznam už neexistuje". */
+class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function api(path, options) {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -30,10 +39,50 @@ async function api(path, options) {
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(detail.detail || "Chyba požadavku");
+    throw new ApiError(detail.detail || "Chyba požadavku", res.status);
   }
   return res.json();
 }
+
+/* Přeskupení sérií (nástroj Přepočítat, nová analýza, změna profilu) smaže
+   staré série a založí nové s jinými čísly. Otevřená stránka pak drží seznam,
+   který už neplatí, a první takový požadavek skončí 404.
+
+   Bez tohoto ošetření na 404 spadla obsluha klávesy a rozhraní vypadalo
+   zamrzlé: další stisky nedělaly nic a nebylo poznat proč. Správná reakce
+   není hláška o chybě, ale TICHÉ ZNOVUNAČTENÍ seznamu - data v databázi jsou
+   v pořádku, jen je má stránka staré. */
+let staleReloadPending = false;
+
+async function handleStale(e, what) {
+  if (!(e instanceof ApiError) || e.status !== 404) return false;
+  if (staleReloadPending) return true;
+  staleReloadPending = true;
+  toast("Seznam se změnil, načítám znovu…");
+  try {
+    state.burstIndex = -1;
+    state.sceneIndex = -1;
+    await reloadCurrentMode();
+  } finally {
+    staleReloadPending = false;
+  }
+  return true;
+}
+
+/* Poslední záchranná síť: cokoliv, co propadne bez ošetření, se ohlásí
+   a nezůstane viset. Zamrzlé rozhraní bez vysvětlení je nejhorší varianta. */
+window.addEventListener("unhandledrejection", (ev) => {
+  const e = ev.reason;
+  if (e instanceof ApiError && e.status === 404) {
+    ev.preventDefault();
+    handleStale(e, "auto");
+    return;
+  }
+  toast("Chyba: " + (e && e.message ? e.message : e));
+});
+
+// Běží právě zápis do XMP? Rozhoduje o tom, jak se ohlásí dokončení úlohy.
+let exportWatch = false;
 
 let toastTimer;
 function toast(message) {
@@ -55,6 +104,10 @@ const STEP_LABELS = {
   analyze:  ["3/5", "Detekce a metriky"],
   grouping: ["4/5", "Scény a série"],
   scoring:  ["5/5", "Skóre"],
+  // Zápis do XMP není součástí pipeline, ale trvá u tisíce snímků minuty,
+  // takže potřebuje stejnou lištu - jinak u mlčícího tlačítka nikdo nepozná,
+  // kolik je hotovo.
+  export:   ["zápis", "Zapisuji do XMP"],
 };
 
 /* --------------------------------------------------------- stav úlohy */
@@ -94,11 +147,22 @@ async function pollStatus() {
     refreshPending();
     refreshFoot(data.stats);
 
-    // Přechod „běží → doběhlo“: obnov seznamy, ať jsou vidět nové série
+    // Přechod „běží → doběhlo“
     if (state.jobWasRunning && !job.running) {
-      toast(job.error ? "Zpracování selhalo" : job.message);
-      reloadCurrentMode();
-      if (!job.error) offerOrganize();
+      if (job.step === "export" || job.step === "export_done" || exportWatch) {
+        // Zápis do XMP nemění série, takže se seznam nenačítá znovu -
+        // jen se ohlásí výsledek a zmizí ukazatel „nezapsáno".
+        exportWatch = false;
+        toast(job.error
+          ? "Zápis do XMP selhal: " + job.error.split("\n")[0]
+          : job.message + " — v Zoneru dej Ctrl+R a chvíli počkej na indexování");
+        pendingTimer = 0;
+        refreshPending();
+      } else {
+        toast(job.error ? "Zpracování selhalo" : job.message);
+        reloadCurrentMode();
+        if (!job.error) offerOrganize();
+      }
     }
     state.jobWasRunning = job.running;
   } catch (e) {
@@ -136,9 +200,10 @@ $("root-select").onchange = (e) => {
 function reloadCurrentMode() {
   state.burstIndex = -1;
   state.sceneIndex = -1;
-  if (state.mode === "salvage") loadSalvage();
-  else if (state.mode === "scenes") loadScenes();
-  else loadBursts();
+  // Vraci promise, aby se na dokonceni dalo cekat (viz handleStale)
+  if (state.mode === "salvage") return loadSalvage();
+  if (state.mode === "scenes") return loadScenes();
+  return loadBursts();
 }
 
 function updateWelcome() {
@@ -309,7 +374,13 @@ async function openScene(index) {
   if (index < 0 || index >= state.scenes.length) return;
   state.sceneIndex = index;
 
-  const detail = await api(`/api/scene/${state.scenes[index].id}`);
+  let detail;
+  try {
+    detail = await api(`/api/scene/${state.scenes[index].id}`);
+  } catch (e) {
+    if (await handleStale(e, "scena")) return;
+    throw e;
+  }
   state.photos = detail.winners;
   state.photoIndex = 0;
 
@@ -505,7 +576,15 @@ async function openBurst(index, skipDuel) {
   if (index < 0 || index >= state.bursts.length) return;
   state.burstIndex = index;
   setZoom(false);
-  const detail = await api(`/api/burst/${state.bursts[index].id}`);
+
+  let detail;
+  try {
+    detail = await api(`/api/burst/${state.bursts[index].id}`);
+  } catch (e) {
+    // Serie mezitim zmizela (preskupeni) - obnov seznam misto zamrznuti
+    if (await handleStale(e, "serie")) return;
+    throw e;
+  }
   state.photos = detail.photos;
   state.bursts[index] = detail.burst;
 
@@ -699,10 +778,19 @@ async function decide(changes) {
   const p = state.photos[state.photoIndex];
   if (!p) return;
 
-  const res = await api("/api/decision", {
-    method: "POST",
-    body: JSON.stringify({ photo_id: p.id, ...changes }),
-  });
+  let res;
+  try {
+    res = await api("/api/decision", {
+      method: "POST",
+      body: JSON.stringify({ photo_id: p.id, ...changes }),
+    });
+  } catch (e) {
+    // Rozhodnuti se neulozilo - musi to byt videt, jinac clovek klika dal
+    // s dojmem, ze hodnoti, a prace se zahazuje.
+    if (await handleStale(e, "snimek")) return;
+    toast("Neuloženo: " + e.message);
+    return;
+  }
 
   Object.assign(p, changes, { reviewed: 1 });
   applyDemotions(res.demoted);
@@ -731,9 +819,15 @@ function applyDemotions(demoted) {
 async function acceptBurst() {
   const burst = state.bursts[state.burstIndex];
   if (!burst) return;
-  await api(`/api/accept-burst/${burst.id}`, { method: "POST" });
+  try {
+    await api(`/api/accept-burst/${burst.id}`, { method: "POST" });
+  } catch (e) {
+    if (await handleStale(e, "serie")) return;
+    toast(e.message);
+    return;
+  }
   burst.reviewed = 1;
-  toast("Série přijata podle návrhu");
+  toast("Série přijata ✓");
   nextBurst();
 }
 
@@ -1170,7 +1264,9 @@ $("export-go").onclick = async () => {
   $("export-go").disabled = true;
   $("export-go").textContent = "Zapisuji…";
   try {
-    const result = await api("/api/export", {
+    // Zápis běží na pozadí a hlásí postup do lišty v hlavičce; tady se jen
+    // spustí a dialog se zavře, aby bylo na lištu vidět.
+    await api("/api/export", {
       method: "POST",
       body: JSON.stringify({
         root_id: state.rootId,
@@ -1179,16 +1275,8 @@ $("export-go").onclick = async () => {
       }),
     });
     $("export-sheet").close();
-    if (result.message && !result.written) {
-      toast(result.message);
-    } else {
-      toast(`Zapsáno ${result.written} souborů` +
-            (result.failed ? `, chyb ${result.failed} (${result.message || ""})` : "") +
-            (result.moved != null ? `, přesunuto ${result.moved}` : "") +
-            " — v Zoneru dej Ctrl+R a chvíli počkej na indexování");
-    }
-    pendingTimer = 0;   // ukazatel „nezapsáno" má zmizet hned
-    refreshPending();
+    exportWatch = true;
+    toast("Zápis do XMP spuštěn — postup je v liště nahoře");
   } catch (e) {
     toast(e.message);
   } finally {

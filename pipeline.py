@@ -164,3 +164,62 @@ def start_background(folder=None, label=None, root_id=None):
 def job_status():
     with _lock:
         return dict(JOB)
+
+
+# ---------------------------------------------------------------------------
+# Zapis do XMP na pozadi
+# ---------------------------------------------------------------------------
+#
+# PROC NA POZADI A NE ROVNOU V ODPOVEDI
+#
+# Zapis 1356 sidecaru je zalezitost minut, ne sekund. Pri synchronnim
+# volani prohlizec jen ceka na odpoved a uzivatel nema jak zjistit, jestli
+# se neco deje, kolik je hotovo a jak dlouho to jeste bude - tlacitko
+# mlci a nezbyva nez hadat. Pruběh se proto hlasi do stejneho stavu ulohy
+# jako zpracovani a rozhrani ho ukazuje na tehoz liste.
+
+# Vysledek posledniho zapisu, aby ho rozhrani mohlo ohlasit i po dobehnuti
+LAST_EXPORT = None
+
+
+def export_step(root_id=None, only_reviewed=True, move_rejected=False):
+    """Zapise rozhodnuti do XMP. Blokujici - volej pres start_export()."""
+    global LAST_EXPORT
+    import xmp
+
+    _set(running=True, error=None, step="export", done=0, total=0,
+         message="Zapisuji do XMP")
+
+    result = xmp.export_decisions(root_id, only_reviewed,
+                                  progress=_progress("export"))
+    if move_rejected:
+        _set(message="Presouvam vyrazene do _rejected")
+        result.update(xmp.move_rejected(root_id))
+
+    parts = [f"Zapsano {result.get('written', 0)} souboru"]
+    if result.get("failed"):
+        parts.append(f"chyb {result['failed']}")
+    if result.get("moved") is not None:
+        parts.append(f"presunuto {result['moved']}")
+    message = ", ".join(parts)
+
+    LAST_EXPORT = result
+    _set(running=False, step="export_done", message=message,
+         finished_at=datetime.now().isoformat())
+    return result
+
+
+def start_export(root_id=None, only_reviewed=True, move_rejected=False):
+    """Spusti zapis do XMP ve vlakne. Vraci False, pokud uz neco bezi."""
+    if JOB["running"]:
+        return False
+
+    def worker():
+        try:
+            export_step(root_id, only_reviewed, move_rejected)
+        except Exception as e:
+            _set(running=False, error=f"{e}\n{traceback.format_exc()}",
+                 message="Zapis do XMP selhal")
+
+    threading.Thread(target=worker, daemon=True).start()
+    return True

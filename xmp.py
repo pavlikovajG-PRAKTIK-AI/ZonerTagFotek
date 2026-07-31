@@ -10,6 +10,7 @@ zapsat do souboru, ktery jeste neexistuje. Obe varianty resi
 write_metadata().
 """
 
+import os
 import shutil
 import subprocess
 from datetime import datetime
@@ -94,7 +95,163 @@ def write_metadata(photo_path, rating=None, keywords=None, label=None):
     return True
 
 
-def export_decisions(root_id=None, only_reviewed=True, progress=None):
+def _run_argfile(lines, timeout=900):
+    """Spusti JEDEN proces exiftoolu pro mnoho souboru pres argfile.
+
+    PROC DAVKOVE
+
+    Spusteni exiftoolu na Windows trva okolo 0,8 s - je v nem zabaleny cely
+    Perl. Pri jednom procesu na soubor je to u 1356 snimku pres pul hodiny
+    cekani, prestoze samotny zapis metadat je otazkou milisekund. Merene:
+    jednotlive 830 ms/soubor, davkove 149 ms/soubor u sedmi souboru, a cim
+    vetsi davka, tim vic se startovaci cena rozpusti (marginalne ~30 ms).
+
+    Prikazy se v argfile oddeluji radkem -execute. Vraci (returncode, stdout).
+    """
+    import tempfile
+
+    fd, path = tempfile.mkstemp(suffix=".args", text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        out = subprocess.run(
+            [config.EXIFTOOL_PATH, "-charset", "filename=utf8", "-@", path],
+            capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace")
+        return out.returncode, (out.stdout or "") + (out.stderr or "")
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _read_ratings(sidecars):
+    """Precte XMP:Rating z davky sidecaru jednim procesem.
+
+    Vraci {cesta: hodnoceni}. Chybejici nebo neprecteny soubor v mape neni.
+    """
+    existing = [s for s in sidecars if s.exists()]
+    if not existing:
+        return {}
+
+    import json as _json
+
+    try:
+        out = subprocess.run(
+            [config.EXIFTOOL_PATH, "-charset", "filename=utf8", "-j", "-n",
+             "-XMP:Rating"] + [str(s) for s in existing],
+            capture_output=True, text=True, timeout=300,
+            encoding="utf-8", errors="replace")
+        data = _json.loads(out.stdout) if out.stdout.strip() else []
+    except Exception:
+        return {}
+
+    result = {}
+    for item in data:
+        src = item.get("SourceFile")
+        if not src:
+            continue
+        try:
+            value = int(item.get("Rating") or 0)
+        except (TypeError, ValueError):
+            value = 0
+        # exiftool vraci lomitka dopredu, porovnava se s Path
+        result[str(Path(src))] = value
+    return result
+
+
+def _write_batch(jobs):
+    """Zapise davku snimku. jobs = [(photo_path, side_path, tags), ...]
+
+    Drzi stejny DVOUKROKOVY postup jako write_metadata, jen kazdy krok
+    provede jednim procesem:
+
+      1) zaloz chybejici sidecar jako kopii metadat originalu
+      2) zapis hodnoty do sidecaru
+
+    Jednim prikazem to nejde - exiftool by prirazene hodnoty prebil metadaty
+    z RAWu a sidecar by vznikl s Rating 0, navic bez jakekoliv hlasky.
+
+    Vraci (mnozina uspesnych indexu, prvni chyba nebo None).
+    """
+    if not jobs:
+        return set(), None
+
+    first_error = None
+
+    # --- 1) zalozeni chybejicich sidecaru ---
+    to_create = [(i, photo, side) for i, (photo, side, _t) in enumerate(jobs)
+                 if not side.exists()]
+    if to_create:
+        lines = []
+        for _i, photo, side in to_create:
+            lines += ["-o", str(side), "-P", str(photo), "-execute"]
+        code, out = _run_argfile(lines)
+        if code != 0 and "Error" in out and first_error is None:
+            for line in out.splitlines():
+                if line.startswith("Error"):
+                    first_error = line.strip()
+                    break
+
+    # Sidecar, ktery se nepodarilo zalozit, nema smysl dal zapisovat
+    ok_indexes = {i for i, (photo, side, _t) in enumerate(jobs) if side.exists()}
+    if len(ok_indexes) < len(jobs) and first_error is None:
+        missing = next(side for i, (photo, side, _t) in enumerate(jobs)
+                       if i not in ok_indexes)
+        first_error = f"Sidecar se nepodarilo zalozit: {missing}"
+
+    # --- 1b) OCHRANA RUCNIHO HODNOCENI ZE ZONERU ---
+    #
+    # Sidecar uz muze existovat s hvezdickami, ktere fotograf pridelil
+    # v Zoneru. Zapsat do nej Rating=0 by tichou cestou smazalo lidske
+    # rozhodnuti, a to je vzdy cennejsi nez automatika. Nula znamena
+    # "WildSort nema nazor", ne "smaz, co tam je".
+    #
+    # Hvezdicku 1-5 z WildSortu zapsat chceme - to uz je vedomy vyber.
+    # Prectou se davkove jednim procesem, takze to nic nestoji.
+    if config.PRESERVE_EXISTING_RATINGS:
+        zero_writes = [(i, jobs[i]) for i in sorted(ok_indexes)
+                       if any(t.startswith("-XMP-xmp:Rating=0") for t in jobs[i][2])]
+        if zero_writes:
+            existing = _read_ratings([side for _i, (_p, side, _t) in zero_writes])
+            for i, (_photo, side, tags) in zero_writes:
+                if existing.get(str(side), 0) > 0:
+                    # Ponech hvezdicku ze Zoneru, ostatni znacky zapis dal
+                    jobs[i] = (jobs[i][0], side,
+                               [t for t in tags if not t.startswith("-XMP-xmp:Rating=")])
+
+    # --- 2) zapis hodnot do sidecaru ---
+    writable = [(i, jobs[i]) for i in sorted(ok_indexes) if jobs[i][2]]
+    if writable:
+        lines = []
+        for _i, (_photo, side, tags) in writable:
+            lines += ["-overwrite_original", "-P"] + tags + [str(side), "-execute"]
+        code, out = _run_argfile(lines)
+
+        updated = out.count("image files updated") + out.count("image files created")
+        if updated < len(writable):
+            # Neco se nezapsalo a z davkoveho vystupu nepoznam co. Presnou
+            # informaci ma cenu koupit zpomalenim jen u te jedne davky.
+            ok_indexes = set()
+            for i, (photo, side, tags) in writable:
+                try:
+                    res = subprocess.run(
+                        [config.EXIFTOOL_PATH, "-overwrite_original", "-P"] + tags
+                        + [str(side)], capture_output=True, text=True, timeout=120)
+                    if res.returncode == 0:
+                        ok_indexes.add(i)
+                    elif first_error is None:
+                        first_error = res.stderr.strip() or "exiftool selhal"
+                except Exception as e:
+                    if first_error is None:
+                        first_error = str(e)
+
+    return ok_indexes, first_error
+
+
+def export_decisions(root_id=None, only_reviewed=True, progress=None,
+                     batch_size=100):
     """Zapise rozhodnuti fotografa z databaze do XMP souboru.
 
     Toto je jediny krok, ktery se dotyka slozky s fotkami. Az do jeho
@@ -118,39 +275,61 @@ def export_decisions(root_id=None, only_reviewed=True, progress=None):
         total = len(rows)
         written = failed = 0
         first_error = None
+        done = 0
 
-        for i, row in enumerate(rows, start=1):
-            path = db.absolute_photo_path(conn, row)
-            if not path.exists():
-                failed += 1
-                first_error = first_error or f"Soubor chybi: {path}"
-                continue
+        if progress:
+            progress(0, total)
 
-            keywords = [k.strip() for k in (row["keywords"] or "").split(",") if k.strip()]
-            if row["flag"] == "pick":
-                keywords.append(config.KEYWORD_PICK)
-            elif row["flag"] == "reject":
-                keywords.append(config.KEYWORD_REJECT)
-            if row["is_empty"]:
-                keywords.append(config.KEYWORD_EMPTY)
-            if row["species"]:
-                keywords.append(row["species"])
+        # Zpracovani po davkach: jedna davka = dva procesy exiftoolu bez
+        # ohledu na to, kolik je v ni souboru. Davka 100 drzi hlaseni
+        # o postupu dost caste, aby bylo videt, ze se neco deje.
+        for start in range(0, total, max(1, batch_size)):
+            chunk = rows[start:start + max(1, batch_size)]
+            jobs = []
+            job_rows = []
 
-            try:
-                write_metadata(path, rating=row["rating"], keywords=keywords)
-                # Zaznam o zapisu. Diky nemu jde poznat, ze fotograf po
-                # zapisu jeste neco zmenil a soubory na disku uz neodpovidaji
-                # databazi - jinak by v Zoneru koukal na stara data a nemel
-                # jak to zjistit.
-                conn.execute("UPDATE photos SET exported_at=? WHERE id=?",
-                             (datetime.now().isoformat(), row["id"]))
-                written += 1
-            except Exception as e:
-                failed += 1
-                first_error = first_error or str(e)
+            for row in chunk:
+                path = db.absolute_photo_path(conn, row)
+                if not path.exists():
+                    failed += 1
+                    first_error = first_error or f"Soubor chybi: {path}"
+                    continue
 
-            if progress and i % 20 == 0:
-                progress(i, total)
+                keywords = [k.strip() for k in (row["keywords"] or "").split(",")
+                            if k.strip()]
+                if row["flag"] == "pick":
+                    keywords.append(config.KEYWORD_PICK)
+                elif row["flag"] == "reject":
+                    keywords.append(config.KEYWORD_REJECT)
+                if row["is_empty"]:
+                    keywords.append(config.KEYWORD_EMPTY)
+                if row["species"]:
+                    keywords.append(row["species"])
+
+                tags = _tag_args(row["rating"], keywords, None)
+                jobs.append((path, sidecar_path(path), tags))
+                job_rows.append(row)
+
+            ok, err = _write_batch(jobs)
+            first_error = first_error or err
+
+            now = datetime.now().isoformat()
+            for i, row in enumerate(job_rows):
+                if i in ok:
+                    # Zaznam o zapisu. Diky nemu jde poznat, ze fotograf po
+                    # zapisu jeste neco zmenil a soubory na disku uz neodpovidaji
+                    # databazi - jinak by v Zoneru koukal na stara data a nemel
+                    # jak to zjistit.
+                    conn.execute("UPDATE photos SET exported_at=? WHERE id=?",
+                                 (now, row["id"]))
+                    written += 1
+                else:
+                    failed += 1
+
+            done += len(chunk)
+            conn.commit()          # postup je videt i pri prerusení
+            if progress:
+                progress(done, total)
 
     result = {"written": written, "failed": failed, "total": total}
     if first_error:

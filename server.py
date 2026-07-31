@@ -636,10 +636,19 @@ def duplicates(root_id: int | None = None):
 
 @app.post("/api/export")
 def export(req: ExportRequest):
-    result = xmp.export_decisions(req.root_id, req.only_reviewed)
-    if req.move_rejected:
-        result.update(xmp.move_rejected(req.root_id))
-    return result
+    """Spusti zapis do XMP NA POZADI a hned se vrati.
+
+    Zapis tisice sidecaru trva minuty. Kdyby se na nej cekalo v odpovedi,
+    uzivatel by u mlciciho tlacitka nemel jak poznat, kolik je hotovo -
+    proto se postup hlasi do stavu ulohy a ukazuje na liste v hlavicce.
+    """
+    if not xmp.exiftool_available():
+        raise HTTPException(
+            400, "ExifTool nenalezen. Nainstaluj ho z exiftool.org nebo rozbal "
+                 r"do %LOCALAPPDATA%\Programs\ExifTool.")
+    if not pipeline.start_export(req.root_id, req.only_reviewed, req.move_rejected):
+        raise HTTPException(409, "Jina uloha uz bezi - pockej, az dobehne")
+    return {"started": True}
 
 
 @app.get("/api/summary")

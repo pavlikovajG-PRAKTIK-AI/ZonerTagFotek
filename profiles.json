@@ -1,7 +1,7 @@
 {
   "standard": {
-    "label": "Standardni",
-    "note": "Vychozi nastaveni. Ostre oko, cele ostre zvire, rovnomerne osvetleni.",
+    "label": "Bezny zaber",
+    "note": "Vychozi pravidla. Ostre oko, cele ostre zvire, rovnomerne osvetleni.",
     "sharpness_floor": 15.0,
     "min_subject_area": 0.005,
     "weights": {
@@ -15,8 +15,8 @@
   },
 
   "let_ptaka": {
-    "label": "Let ptaka",
-    "note": "Rychly subjekt, casto maly v zaberu a u okraje. Velikost ani umisteni se netrestaji. Preferuje se profil pred anfasem.",
+    "label": "Maly subjekt nebo u okraje",
+    "note": "Navrhuje se, kdyz zvire zabira pod 3 % zaberu nebo je uriznute okrajem - pták v letu, zvire v siroke krajine. Velikost ani umisteni se netrestaji. Preferuje se profil pred anfasem.",
     "prefer_side_pose": true,
     "sharpness_floor": 20.0,
     "min_subject_area": 0.001,
@@ -49,8 +49,8 @@
   },
 
   "klidny_savec": {
-    "label": "Klidny savec",
-    "note": "Staticky subjekt. Vetsi duraz na velikost v zaberu, cistou expozici a cele osvetlenou tvar.",
+    "label": "Velky subjekt v zaberu",
+    "note": "Navrhuje se, kdyz zvire zabira nad 15 % zaberu a neni uriznute - portret, klidna scena. Vetsi duraz na velikost v zaberu, cistou expozici a cele osvetlenou tvar.",
     "sharpness_floor": 25.0,
     "min_subject_area": 0.01,
     "weights": {
