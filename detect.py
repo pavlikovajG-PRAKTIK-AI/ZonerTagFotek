@@ -9,6 +9,25 @@ vysoke skore.
 MegaDetector je volitelny. Pokud model neni stazeny, modul se prepne do
 rezimu bez detekce a metriky se pocitaji ze stredove oblasti snimku.
 Pipeline tim neselze, jen bude mene presna.
+
+DVE VECI, KTERE TU MUSI BYT NAROVNANE
+
+(1) VERZE YOLOV5 SE PINUJE NA v7.0
+    Vetev master dnes zacina radkem "from ultralytics.utils.patches import
+    torch_load", takze si vynucuje cely balik ultralytics. Ten s sebou tahne
+    opencv-python, ktery koliduje s opencv-python-headless z requirements -
+    instalace pak spadne na zamcenem cv2.pyd. Tag v7.0 zadny ultralytics
+    nepotrebuje a MegaDetector v5 je presne yolov5 checkpoint teto generace.
+
+(2) torch.load SE MUSI ZAVOLAT S weights_only=False
+    Od torch 2.6 je vychozi weights_only=True a odpickleni yolov5
+    checkpointu tim selze. Model je vlastni soubor z oficialniho vydani
+    MegaDetectoru, ktery si uzivatel stahl sam, takze plne odpickleni je
+    v poradku. Patch plati jen po dobu nacitani.
+
+A jedna vec navic: kdyz nacteni selze, ulozi se SKUTECNY DUVOD. Puvodni
+hlaseni "nelze nacist (chybi torch?)" pri nainstalovanem torchi posilalo
+hledani uplne spatnym smerem.
 """
 
 import numpy as np
@@ -17,35 +36,77 @@ import config
 
 _model = None
 _model_state = "unloaded"   # unloaded | ready | unavailable
+_error = None               # skutecny duvod, proc se model nenacetl
+
+# Poradi, ve kterem se zkousi zdroj kodu yolov5. v7.0 je hlavni cesta,
+# master zaloha pro pripad, ze by v7.0 pro nejakou verzi torche prestal jit.
+_HUB_SOURCES = ("ultralytics/yolov5:v7.0", "ultralytics/yolov5")
 
 
 def model_available():
-    """Vrati True, pokud je MegaDetector k dispozici."""
+    """Vrati True, pokud je soubor s modelem na disku."""
     return config.MEGADETECTOR_PATH.exists()
+
+
+def _load_with(source):
+    """Nacte model z jedne varianty zdroje. Vyhodi vyjimku pri selhani."""
+    import torch
+
+    original = torch.load
+    try:
+        def relaxed(*args, **kwargs):
+            kwargs["weights_only"] = False
+            return original(*args, **kwargs)
+
+        torch.load = relaxed
+        return torch.hub.load(source, "custom",
+                              path=str(config.MEGADETECTOR_PATH),
+                              trust_repo=True, verbose=False)
+    finally:
+        torch.load = original
 
 
 def load_model():
     """Nacte MegaDetector. Vraci None, pokud neni dostupny."""
-    global _model, _model_state
+    global _model, _model_state, _error
     if _model_state in ("ready", "unavailable"):
         return _model
 
     if not model_available():
         _model_state = "unavailable"
+        _error = f"soubor modelu nenalezen: {config.MEGADETECTOR_PATH}"
         return None
 
     try:
-        import torch
-        _model = torch.hub.load(
-            "ultralytics/yolov5", "custom",
-            path=str(config.MEGADETECTOR_PATH), trust_repo=True,
-        )
-        _model.conf = config.EMPTY_FRAME_CONFIDENCE
-        _model_state = "ready"
-    except Exception:
-        _model = None
+        import torch  # noqa: F401
+    except ImportError as e:
         _model_state = "unavailable"
-    return _model
+        _error = f"chybi PyTorch ({e}). Nainstaluj: pip install torch torchvision"
+        return None
+
+    problems = []
+    for source in _HUB_SOURCES:
+        try:
+            model = _load_with(source)
+        except Exception as e:
+            problems.append(f"{source}: {type(e).__name__}: {e}")
+            continue
+
+        model.conf = config.EMPTY_FRAME_CONFIDENCE
+        _model = model
+        _model_state = "ready"
+        _error = None
+        return _model
+
+    _model = None
+    _model_state = "unavailable"
+    _error = " | ".join(problems)
+    return None
+
+
+def last_error():
+    """Skutecny duvod, proc se model nenacetl. None, kdyz je vse v poradku."""
+    return _error
 
 
 def detect(image_path):
@@ -73,7 +134,8 @@ def detect(image_path):
                 "is_empty": 1, "fallback": False}
 
     best = max(animals, key=lambda b: b[4])
-    x1, y1, x2, y2, conf = float(best[0]), float(best[1]), float(best[2]), float(best[3]), float(best[4])
+    x1, y1, x2, y2, conf = (float(best[0]), float(best[1]), float(best[2]),
+                            float(best[3]), float(best[4]))
 
     return {
         "conf": conf,
@@ -88,9 +150,15 @@ def detect(image_path):
 
 def status():
     """Textovy stav detektoru pro zobrazeni v UI."""
-    if model_available():
-        load_model()
-        if _model_state == "ready":
-            return "MegaDetector aktivni"
-        return "MegaDetector nalezen, ale nelze nacist (chybi torch?)"
-    return "Bez detekce - metriky se pocitaji ze stredu snimku"
+    if not model_available():
+        return "Bez detekce - metriky se pocitaji ze stredu snimku"
+
+    load_model()
+    if _model_state == "ready":
+        return "MegaDetector aktivni"
+
+    # Konkretni duvod, ne vseobecny dotaz na torch
+    reason = _error or "neznamy duvod"
+    if len(reason) > 160:
+        reason = reason[:157] + "..."
+    return f"MegaDetector nelze nacist - {reason}"

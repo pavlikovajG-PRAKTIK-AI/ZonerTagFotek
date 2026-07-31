@@ -102,14 +102,41 @@ def import_folder(folder, label=None, progress=None):
     added = skipped = duplicates = 0
 
     with db.connect() as conn:
-        cur = conn.execute("SELECT id FROM roots WHERE path=?", (str(folder),))
-        row = cur.fetchone()
+        # Hledani korenu MUSI zacit relativni cestou, ne absolutni.
+        #
+        # Na druhem pocitaci ma prenosny disk jine pismeno, takze absolutni
+        # cesta "D:\Kena2026" se nenajde a zalozil by se DRUHY koren nad
+        # tymiz fotkami - tedy presne to zpracovani znovu, kteremu se prenosny
+        # projekt vyhyba. Relativni cesta uvnitr projektu se nemeni.
+        loc = db.root_location_fields(folder)
+        rel = loc["rel_to_ws"]
+
+        row = None
+        if rel is not None:
+            row = conn.execute("SELECT id FROM roots WHERE rel_to_ws=?", (rel,)).fetchone()
+        # Nez cestu, radeji identitu disku: nazev svazku a cesta od jeho
+        # korene se prenosem nemeni, pismeno jednotky ano.
+        if row is None and loc["vol_serial"] and loc["drive_rel"]:
+            row = conn.execute(
+                "SELECT id FROM roots WHERE vol_serial=? AND drive_rel=?",
+                (loc["vol_serial"], loc["drive_rel"])).fetchone()
+        if row is None:
+            row = conn.execute("SELECT id FROM roots WHERE path=?", (str(folder),)).fetchone()
+
         if row:
             root_id = row["id"]
+            # Srovnej ulozene udaje se skutecnymi (jine pismeno jednotky apod.)
+            conn.execute(
+                "UPDATE roots SET path=?, rel_to_ws=?, vol_label=?, vol_serial=?, "
+                "drive_rel=? WHERE id=?",
+                (loc["path"], rel, loc["vol_label"], loc["vol_serial"],
+                 loc["drive_rel"], root_id))
         else:
             cur = conn.execute(
-                "INSERT INTO roots (path, label, imported_at) VALUES (?,?,?)",
-                (str(folder), label or folder.name, datetime.now().isoformat()),
+                "INSERT INTO roots (path, rel_to_ws, vol_label, vol_serial, drive_rel, "
+                "label, imported_at) VALUES (?,?,?,?,?,?,?)",
+                (loc["path"], rel, loc["vol_label"], loc["vol_serial"], loc["drive_rel"],
+                 label or folder.name, datetime.now().isoformat()),
             )
             root_id = cur.lastrowid
 

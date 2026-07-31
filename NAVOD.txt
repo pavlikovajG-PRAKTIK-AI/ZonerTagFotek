@@ -16,6 +16,7 @@ OBSAH
   2. Zakladni princip
   3. Co je potreba nainstalovat
   4. Prvni spusteni
+ 4B. Prace na dvou pocitacich - prenosny projekt na disku
   5. Popis procesu krok za krokem
   6. Prace v rozhrani - klavesove zkratky
  6B. Nastroje - zrusit hodnoceni a prepocitat
@@ -92,27 +93,50 @@ NUTNE:
         pip install -r requirements.txt
 
   ExifTool
-    https://exiftool.org
-    Windows: stahni "Windows Executable", rozbal, prejmenuj
-    exiftool(-k).exe na exiftool.exe a dej do slozky, ktera je na PATH
-    (napr. C:\Windows). Alternativne uprav EXIFTOOL_PATH v config.py na
-    plnou cestu.
+    https://exiftool.org  ->  "Windows Executable" (64bit)
+
+    Rozbal a prejmenuj exiftool(-k).exe na exiftool.exe. Slozku dej sem:
+        %LOCALAPPDATA%\Programs\ExifTool\exiftool.exe
+
+    Tam si ho program najde SAM a nemusi byt na PATH. Hleda v tomto
+    poradi: promenna WILDSORT_EXIFTOOL -> PATH -> slozka vyse -> slozka
+    programu -> C:\Program Files\ExifTool -> C:\Windows.
 
     Bez ExifToolu system nedokaze cist EXIF, vytahovat nahledy z RAWu ani
     zapisovat vysledky. Je to jedina skutecne nezbytna externi soucast.
 
-VOLITELNE (doporucene):
+VOLITELNE (doporucene) - DETEKCE ZVIRAT:
 
-  MegaDetector - model pro detekci zvirat, zdarma
-    Soubor md_v5a.0.0.pt uloz do slozky models/
-    Zdroj: https://github.com/agentmorris/MegaDetector
+  Bez ni system funguje, ale ostrost meri ze stredovych 60 % snimku misto
+  ze skutecneho zvirete. U snimku, kde subjekt neni uprostred, je rozdil
+  ve kvalite vyberu znatelny. Instalace ma tri kroky:
 
-  PyTorch - nutny pro beh MegaDetectoru
-        pip install torch torchvision ultralytics
+  (1) PyTorch v CPU verzi
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-    Bez MegaDetectoru system funguje, ale ostrost meri ze stredovych 60 %
-    snimku misto ze skutecneho zvirete. Vysledky jsou o poznani horsi
-    u snimku, kde subjekt neni uprostred.
+      Proc tento index: vychozi balik z PyPI tahne CUDA a ma pres 2 GB.
+      Tenhle je okolo 250 MB a na procesoru dela totez.
+
+  (2) Zavislosti kodu yolov5 (vsechno cistě pythonove, nic velkeho)
+        pip install ipython pandas requests matplotlib seaborn tqdm psutil pyyaml scipy gitpython
+
+  (3) Model MegaDetector v5a (268 MB) do slozky models/
+        https://github.com/agentmorris/MegaDetector/releases/download/v5.0/md_v5a.0.0.pt
+
+  NEINSTALUJ balik "ultralytics". Novejsi yolov5 si ho vynucuje, on
+  s sebou tahne opencv-python, ten koliduje s opencv-python-headless
+  a instalace spadne na zamcenem cv2.pyd. Program proto pouziva yolov5
+  ve verzi v7.0, ktera ultralytics nepotrebuje.
+
+  RYCHLOST na procesoru: okolo 0,75 s na snimek, tedy asi 17 minut na
+  1400 snimku. Prvni spusteni je delsi - stahuje se kod yolov5 (jednorazove,
+  par MB) a nacita model.
+
+  ZKOUSKA, ze to funguje: v hornim pruhu rozhrani ma byt "MegaDetector
+  aktivni". Kdyz tam je "MegaDetector nelze nacist", je za pomlckou
+  napsany konkretni duvod.
+
+PLACENE: nic. Vsechno vyse je zdarma.
 
 PLACENE: nic. Vsechno vyse je zdarma.
 
@@ -154,9 +178,89 @@ o sobe nic neumi; vsechnu praci (cteni RAWu, detekci zvirat, databazi, zapis
 XMP) dela server, ktery musi bezet vedle nej. Proto se spousti launcherem
 a rozhrani se otevira na adrese http://127.0.0.1:8756.
 
-DULEZITE: fotky nech na internim disku po celou dobu zpracovani. Cteni
-tisicu souboru pres USB zpracovani znatelne prodlouzi. Externi disk pouzij
-az na finalni zalohu.
+RYCHLOST A EXTERNI DISK: cteni tisicu souboru pres USB zpracovani prodlouzi.
+Kdyz to jde, nech fotky pri zpracovani na internim disku. Kdyz to nejde
+(nebo pracujes na dvou pocitacich), viz kapitola 4B - prace primo z disku
+funguje, jen je pomalejsi.
+
+
+-------------------------------------------------------------------------------
+4B. PRACE NA DVOU POCITACICH - PRENOSNY PROJEKT NA DISKU
+-------------------------------------------------------------------------------
+
+SITUACE: fotky jsou na prenosnem disku. Cast projdes na stolnim pocitaci,
+disk pak prepojis k notebooku a chces POKRACOVAT, ne zacinat znovu.
+
+PROC TO NEJDE SAMO OD SEBE
+
+Ve vychozim nastaveni lezi databaze rozhodnuti a nahledy ve slozce programu
+(...\ZonerTagFotek\workspace). Ty jsou ale na kazdem pocitaci jine, takze
+druhy stroj o odvedene praci nevi a spocital by vsechno znovu - vcetne
+nahledu a detekce, coz je ta draha cast.
+
+RESENI: PROJEKT U FOTEK
+
+Spust program s tim, ze mu ukazes slozku s fotkami:
+
+    python run.py --projekt D:\Kena2026
+
+Databaze i nahledy se ulozi do  D:\Kena2026\_wildsort  , tedy PRIMO K FOTKAM
+na disk. Rozdelana prace tim cestuje s nimi.
+
+Na druhem pocitaci spustis totez. Trideni pokracuje presne tam, kde skoncilo,
+a nic se nepocita znovu.
+
+PISMENO JEDNOTKY NEMUSIS ZJISTOVAT
+
+Na druhem pocitaci dostane disk obvykle jine pismeno (doma D:, na notebooku
+treba F:). Program se na nej neupina - vsechny cesty uvnitr projektu jsou
+relativni ke slozce projektu.
+
+Navic staci zadat NAZEV DISKU, ktery se prenosem nemeni:
+
+    python run.py --projekt 8T_MainBP
+
+Na velkosti pismen nezalezi. Disk se pozna podle nazvu svazku a jeho
+serioveho cisla; podle nich se projekt najde sam.
+
+A kdyz clovek nevi ani nazev, vypise se, co je rozdelane:
+
+    python run.py --najdi
+
+    Nalezene projekty (1):
+      D:\Kena2026
+          disk: 8T_MainBP (D:, pevny)
+          snimku v databazi: 1356   vyrizeno: 420
+          pokracovat:  python run.py --projekt "D:\Kena2026"
+
+Hledani jde do hloubky 3 podslozek pod korenem disku - i na 8TB disku to
+trva pod tri sekundy.
+
+CO VZNIKNE VE SLOZCE _wildsort
+
+    wildsort.db              vsechna rozhodnuti a metriky
+    proxy\                   nahledy (2-5 GB na 10 000 snimku)
+    project.json             identita disku, aby se projekt dal najit
+    wildsort-project.txt     lidsky citelna poznamka, co ta slozka je
+
+Slozku nemaz, dokud neni trideni zapsane do XMP. Az potom je zbytecna -
+rozhodnuti uz jsou v .xmp souborech vedle fotek.
+
+DVE VECI, KTERE MUSI BYT NA OBOU POCITACICH
+
+Program samotny a ExifTool. Databaze se prenosem preklopi, ale programy ne -
+na notebooku musi byt taky Python, ExifTool a (chces-li detekci) model
+MegaDetectoru. Databaze vytvorena s detekci se na stroji bez detekce cte
+bez problemu, jen dalsi analyza uz by byla mene presna.
+
+ZPET NA JEDEN POCITAC
+
+Bez prepinace se pouzije workspace u programu jako driv:
+
+    python run.py
+
+Oba rezimy se nemichaji - kazdy ma vlastni databazi. V hornim pruhu
+rozhrani je videt, ktery je zapnuty.
 
 
 -------------------------------------------------------------------------------

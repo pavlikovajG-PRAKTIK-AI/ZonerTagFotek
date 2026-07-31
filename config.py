@@ -15,14 +15,83 @@ from pathlib import Path
 # Korenovy adresar projektu (kde lezi tento soubor)
 BASE_DIR = Path(__file__).resolve().parent
 
-# Pracovni adresar: databaze, nahledy, logy. Muze byt kdekoliv na disku.
-WORKSPACE_DIR = BASE_DIR / "workspace"
+# ---------------------------------------------------------------------------
+# Pracovni adresar (workspace)
+# ---------------------------------------------------------------------------
+#
+# Workspace = databaze + nahledy. Muze byt na dvou mistech:
+#
+#   VEDLE PROGRAMU  (vychozi)  ...\ZonerTagFotek\workspace
+#       Bezny pripad: fotky mam na internim disku a tridim na jednom stroji.
+#
+#   VEDLE FOTEK  (prenosny)    E:\Kena2026\_wildsort
+#       Fotky jsou na prenosnem disku a trideni pokracuje na jinem pocitaci.
+#       Databaze i nahledy cestuji s fotkami, takze druhy stroj nemusi nic
+#       pocitat znovu - navaze presne tam, kde prvni skoncil.
+#
+# Nazev prenosne slozky. Podtrzitko na zacatku ji v Prizkumniku i v Zoneru
+# drzi na zacatku vypisu a odlisuje ji od slozek scen (001, 002, ...).
+PORTABLE_DIR_NAME = "_wildsort"
+
+# Prenosny workspace se pozna podle tohoto souboru. Znaci "tady je projekt",
+# takze pri pripojeni disku na druhem stroji staci ukazat na slozku s fotkami.
+PORTABLE_MARKER = "wildsort-project.txt"
+
+
+def default_workspace():
+    """Vrati workspace, se kterym se ma startovat.
+
+    Promenna prostredi ma prednost, aby se dal workspace vybrat z launcheru
+    bez zasahu do kodu (WildSort.bat, prenosny disk).
+    """
+    env = os.environ.get("WILDSORT_WORKSPACE")
+    if env:
+        return Path(env)
+    return BASE_DIR / "workspace"
+
+
+WORKSPACE_DIR = default_workspace()
 
 # Databaze
 DB_PATH = WORKSPACE_DIR / "wildsort.db"
 
 # Adresar s vygenerovanymi nahledy (proxy JPEG)
 PROXY_DIR = WORKSPACE_DIR / "proxy"
+
+
+def set_workspace(path):
+    """Prepne workspace za behu.
+
+    Vsechny moduly ctou cesty pres config.X (nikde neni "from config import
+    DB_PATH"), takze prepsani tady plati okamzite pro celou aplikaci.
+    """
+    global WORKSPACE_DIR, DB_PATH, PROXY_DIR
+    WORKSPACE_DIR = Path(path).expanduser().resolve()
+    DB_PATH = WORKSPACE_DIR / "wildsort.db"
+    PROXY_DIR = WORKSPACE_DIR / "proxy"
+    ensure_dirs()
+    return WORKSPACE_DIR
+
+
+def portable_workspace_for(photo_folder):
+    """Vrati cestu prenosneho workspace pro danou slozku s fotkami."""
+    return Path(photo_folder).expanduser().resolve() / PORTABLE_DIR_NAME
+
+
+def is_portable():
+    """Lezi workspace u fotek (prenosny), nebo u programu?"""
+    return WORKSPACE_DIR.name == PORTABLE_DIR_NAME
+
+
+def project_root():
+    """Slozka, ke ktere se vztahuji relativni cesty korenu importu.
+
+    U prenosneho workspace je to slozka s fotkami (rodic _wildsort) - proto
+    je jedno, jestli disk dostane na jednom pocitaci D: a na druhem E:.
+    U workspace vedle programu nic takoveho neexistuje a cesty zustavaji
+    absolutni.
+    """
+    return WORKSPACE_DIR.parent if is_portable() else None
 
 # Adresar pro modely (MegaDetector apod.)
 MODELS_DIR = BASE_DIR / "models"
@@ -31,8 +100,42 @@ MODELS_DIR = BASE_DIR / "models"
 # a metriky se pocitaji z celeho snimku.
 MEGADETECTOR_PATH = MODELS_DIR / "md_v5a.0.0.pt"
 
-# ExifTool. Musi byt na PATH, nebo zadej plnou cestu.
-EXIFTOOL_PATH = "exiftool"
+# ExifTool. Hleda se sam, protoze "musi byt na PATH" je nejcastejsi duvod,
+# proc aplikace na cizim stroji nenabehne: rozbaleny exiftool.exe ve slozce
+# Programs na PATH neni a uzivatel nema duvod tusit, ze ho tam ma pridat.
+#
+# Poradi hledani: promenna prostredi -> PATH -> obvykla mista rozbaleni.
+# Kdyz se nic nenajde, zustane "exiftool" a chyba se ohlasi az pri pouziti
+# (spravne - bez ExifToolu nelze cist EXIF, nahledy z RAWu ani zapisovat XMP).
+def _find_exiftool():
+    import shutil
+
+    override = os.environ.get("WILDSORT_EXIFTOOL")
+    if override and Path(override).is_file():
+        return override
+
+    found = shutil.which("exiftool")
+    if found:
+        return found
+
+    local = os.environ.get("LOCALAPPDATA", "")
+    candidates = [
+        Path(local) / "Programs" / "ExifTool" / "exiftool.exe",
+        BASE_DIR / "exiftool" / "exiftool.exe",
+        BASE_DIR / "exiftool.exe",
+        Path(r"C:\Program Files\ExifTool\exiftool.exe"),
+        Path(r"C:\Windows\exiftool.exe"),
+    ]
+    for path in candidates:
+        try:
+            if path.is_file():
+                return str(path)
+        except OSError:
+            pass
+    return "exiftool"
+
+
+EXIFTOOL_PATH = _find_exiftool()
 
 # ---------------------------------------------------------------------------
 # Vstupni soubory

@@ -122,7 +122,21 @@ def status():
             "FROM roots r ORDER BY r.id DESC")]
         s = db.stats(conn)
     return {"job": pipeline.job_status(), "roots": roots, "stats": s,
-            "detector": detect.status()}
+            "detector": detect.status(), "workspace": workspace_info()}
+
+
+def workspace_info():
+    """Kde lezi databaze a nahledy.
+
+    V rozhrani to musi byt videt: pri praci na dvou pocitacich je rozdil mezi
+    "databaze u fotek na disku" a "databaze u programu" tim, co rozhoduje,
+    jestli druhy stroj navaze, nebo pocita vsechno znovu.
+    """
+    return {
+        "path": str(config.WORKSPACE_DIR),
+        "portable": config.is_portable(),
+        "project": str(config.project_root()) if config.project_root() else None,
+    }
 
 
 @app.post("/api/import")
@@ -151,7 +165,15 @@ def reprocess(root_id: int, deep: bool = False):
     Rozhodnuti fotografa zustavaji v obou pripadech nedotcena. Novy
     import slozky by tohle NEudelal: import preskoci uz zname soubory,
     takze by se nic neprepocitalo.
+
+    POZOR NA PORADI: kontrola bezici ulohy MUSI byt driv nez zapis do
+    databaze. Bezici analyza databazi drzi, takze UPDATE by spadl na
+    "database is locked" a uzivatel by misto hlasky "uz to bezi" dostal
+    chybu 500.
     """
+    if pipeline.job_status()["running"]:
+        raise HTTPException(409, "Zpracovani uz bezi - pockej, az dobehne")
+
     with db.connect() as conn:
         if not conn.execute("SELECT 1 FROM roots WHERE id=?", (root_id,)).fetchone():
             raise HTTPException(404, "Import nenalezen")

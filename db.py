@@ -14,11 +14,17 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import config
+import volume
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS roots (
     id           INTEGER PRIMARY KEY,
     path         TEXT NOT NULL UNIQUE,   -- absolutni koren importu
+    rel_to_ws    TEXT,                   -- cesta relativne ke slozce projektu
+                                         -- (prenosny disk meni pismeno jednotky)
+    vol_label    TEXT,                   -- nazev svazku ("KENA2026")
+    vol_serial   TEXT,                   -- seriove cislo svazku
+    drive_rel    TEXT,                   -- cesta od korene disku
     label        TEXT,                   -- napr. "Kena 2026 - karta 1"
     imported_at  TEXT NOT NULL
 );
@@ -165,6 +171,16 @@ def migrate(conn):
 
     Existujici databaze se tim neztrati - rozhodnuti fotografa zustanou.
     """
+    root_cols = {r["name"] for r in conn.execute("PRAGMA table_info(roots)")}
+    for col, ddl in (
+        ("rel_to_ws", "ALTER TABLE roots ADD COLUMN rel_to_ws TEXT"),
+        ("vol_label", "ALTER TABLE roots ADD COLUMN vol_label TEXT"),
+        ("vol_serial", "ALTER TABLE roots ADD COLUMN vol_serial TEXT"),
+        ("drive_rel", "ALTER TABLE roots ADD COLUMN drive_rel TEXT"),
+    ):
+        if col not in root_cols:
+            conn.execute(ddl)
+
     existing = {r["name"] for r in conn.execute("PRAGMA table_info(bursts)")}
     if "profile" not in existing:
         conn.execute("ALTER TABLE bursts ADD COLUMN profile TEXT DEFAULT 'standard'")
@@ -200,9 +216,129 @@ def migrate(conn):
 
 
 def get_root_path(conn, root_id):
-    """Vrati absolutni cestu ke koreni importu."""
-    row = conn.execute("SELECT path FROM roots WHERE id=?", (root_id,)).fetchone()
-    return Path(row["path"]) if row else None
+    """Vrati absolutni cestu ke koreni importu.
+
+    PROC TO NENI JEN Path(row["path"])
+
+    Prenosny disk dostane na kazdem pocitaci jine pismeno - na stolnim D:,
+    na notebooku E:. Ulozena absolutni cesta "D:\\Kena2026" pak na notebooku
+    neexistuje a rozbije se vsechno, co se souboru dotyka: nahledy, zapis
+    XMP i roztrideni do slozek. Pritom slozka je na miste, jen jinak
+    pojmenovana.
+
+    Proto se u prenosneho projektu drzi i cesta RELATIVNI ke slozce projektu
+    (rel_to_ws) a ta ma prednost. "." znamena "koren je prave slozka
+    projektu". Absolutni cesta zustava jako zaloha a pro projekty vedle
+    programu, kde se pismeno jednotky nemeni.
+    """
+    row = conn.execute("SELECT * FROM roots WHERE id=?", (root_id,)).fetchone()
+    if not row:
+        return None
+
+    keys = row.keys()
+
+    # 1) Relativne ke slozce projektu - u prenosneho projektu nejspolehlivejsi
+    base = config.project_root()
+    rel = row["rel_to_ws"] if "rel_to_ws" in keys else None
+    if base is not None and rel:
+        candidate = base if rel == "." else base / rel
+        if candidate.is_dir():
+            return candidate
+
+    # 2) Ulozena absolutni cesta - plati, dokud se nezmeni pismeno jednotky
+    absolute = Path(row["path"])
+    if absolute.is_dir():
+        return absolute
+
+    # 3) Podle NAZVU A SERIOVEHO CISLA DISKU. Pismeno jednotky patri pocitaci,
+    #    nazev svazku patri disku - po prenosu na jiny stroj je tohle ta
+    #    informace, ktera jeste plati.
+    if "vol_serial" in keys:
+        found = volume.resolve(
+            None,
+            label=row["vol_label"] if "vol_label" in keys else None,
+            serial=row["vol_serial"],
+            relative_to_drive=row["drive_rel"] if "drive_rel" in keys else None,
+        )
+        if found is not None:
+            return found
+
+    # 4) Stejne pojmenovana slozka pod projektem (projekt se presunul jinam)
+    if base is not None:
+        by_name = base / absolute.name
+        if by_name.is_dir():
+            return by_name
+        if base.is_dir():
+            return base
+
+    # Vrat absolutni cestu i kdyz neexistuje - volajici chybu ohlasi
+    # s konkretni cestou, coz je lepsi nez None a pad na NoneType.
+    return absolute
+
+
+def relative_to_project(folder):
+    """Vrati cestu slozky relativne ke slozce projektu, nebo None.
+
+    None znamena "tento koren pod projektem nelezi" - pak se pouzije jen
+    absolutni cesta.
+    """
+    base = config.project_root()
+    if base is None:
+        return None
+    folder = Path(folder).expanduser().resolve()
+    try:
+        rel = folder.relative_to(base)
+    except ValueError:
+        return None
+    return "." if str(rel) in ("", ".") else str(rel)
+
+
+def root_location_fields(folder):
+    """Vrati vsechny udaje o umisteni korenu, ktere se ukladaji.
+
+    Ctyri zpusoby, jak tutez slozku najit, protoze kazdy prezije jinou
+    zmenu: relativni cesta prezije zmenu pismene jednotky, nazev disku
+    prezije i presun projektu, absolutni cesta je nejpresnejsi, dokud se
+    nic nezmeni.
+    """
+    folder = Path(folder).expanduser().resolve()
+    vol = volume.info(folder) or {}
+    return {
+        "path": str(folder),
+        "rel_to_ws": relative_to_project(folder),
+        "vol_label": vol.get("label"),
+        "vol_serial": vol.get("serial"),
+        "drive_rel": volume.relative_to_drive(folder),
+    }
+
+
+def refresh_root_locations(conn):
+    """Po pripojeni disku na jinem pocitaci srovna ulozene udaje se skutecnymi.
+
+    Bez toho by v databazi zustalo pismeno z predchoziho stroje a kazdy dalsi
+    pristup k souboru by slozku dohledaval znovu.
+    """
+    fixed = 0
+    for row in conn.execute("SELECT id, path FROM roots").fetchall():
+        actual = get_root_path(conn, row["id"])
+        if actual is None or not actual.is_dir():
+            continue
+        fields = root_location_fields(actual)
+        if fields["path"] != row["path"]:
+            conn.execute(
+                "UPDATE roots SET path=?, rel_to_ws=?, vol_label=?, vol_serial=?, "
+                "drive_rel=? WHERE id=?",
+                (fields["path"], fields["rel_to_ws"], fields["vol_label"],
+                 fields["vol_serial"], fields["drive_rel"], row["id"]))
+            fixed += 1
+        else:
+            # Cesta plati, ale identita disku mohla chybet (stara databaze)
+            conn.execute(
+                "UPDATE roots SET rel_to_ws=?, vol_label=?, vol_serial=?, drive_rel=? "
+                "WHERE id=? AND (vol_serial IS NULL OR rel_to_ws IS NOT ?)",
+                (fields["rel_to_ws"], fields["vol_label"], fields["vol_serial"],
+                 fields["drive_rel"], row["id"], fields["rel_to_ws"]))
+    return fixed
 
 
 def absolute_photo_path(conn, photo_row):
