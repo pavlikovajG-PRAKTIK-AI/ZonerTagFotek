@@ -183,6 +183,11 @@ def apply(root_id, progress=None):
                 conn.execute(
                     "UPDATE photos SET rel_path=? WHERE id=?",
                     (str(dest.relative_to(root_path)), photo_id))
+                # Commit HNED po presunu, ne az na konci: soubor uz na disku
+                # lezi jinde, takze rollback cele davky by nechal databazi
+                # ukazovat na stara mista. Zaroven se dlouho drzena zapisova
+                # transakce nepotka s hodnocenim z rozhrani.
+                conn.commit()
                 moved += 1
                 moved_here += 1
 

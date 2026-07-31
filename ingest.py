@@ -153,6 +153,9 @@ def import_folder(folder, label=None, progress=None):
             if r["file_hash"]
         }
 
+        # Zalozeni korenu nesmi zustat vezet v dlouhe transakci
+        conn.commit()
+
         # zpracovani po davkach kvuli exiftool
         for i in range(0, len(files), config.BATCH_SIZE):
             batch = files[i:i + config.BATCH_SIZE]
@@ -196,6 +199,17 @@ def import_folder(folder, label=None, progress=None):
                 else:
                     known_hashes[fhash] = cur2.lastrowid
                     added += 1
+
+            # COMMIT PO KAZDE DAVCE, NE AZ NA KONCI.
+            #
+            # Import 2309 souboru drzel jednu zapisovou transakci nekolik
+            # minut (hashovani + cteni EXIF bezi UVNITR ni). SQLite ma
+            # jedineho zapisovace: kazdy dalsi zapis - hodnoceni snimku
+            # z rozhrani, druhy pokus o import - cekal 30 sekund a spadl
+            # na "database is locked". Kratke transakce nechaji ostatni
+            # zapisy prokladat; pri prerusení se navic neztrati uz
+            # naimportovane davky.
+            conn.commit()
 
             if progress:
                 progress(min(i + config.BATCH_SIZE, len(files)), len(files))

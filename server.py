@@ -113,9 +113,15 @@ def image(photo_id: int, size: str = "proxy"):
 # Zpracovani
 # ---------------------------------------------------------------------------
 
+# Schema se zaklada JEDNOU pri startu, ne pri kazdem dotazu na stav.
+# Rozhrani se pta kazdych 1,5 s; opakovane spousteni CREATE/ALTER skriptu
+# se zbytecne prida do fronty na zapis presne ve chvilich, kdy je databaze
+# nejvytizenejsi (import, export).
+db.init_db()
+
+
 @app.get("/api/status")
 def status():
-    db.init_db()
     with db.connect() as conn:
         roots = [dict(r) for r in conn.execute(
             "SELECT r.*, (SELECT COUNT(*) FROM photos p WHERE p.root_id=r.id) AS photo_count "
