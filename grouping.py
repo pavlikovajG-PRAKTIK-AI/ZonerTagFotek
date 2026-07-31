@@ -173,12 +173,31 @@ def run(root_id=None):
 
                 new_group = False
                 if prev is not None:
-                    if (t - prev).total_seconds() > config.BURST_GAP_SECONDS:
+                    gap = (t - prev).total_seconds()
+                    if gap > config.BURST_GAP_SECONDS:
                         new_group = True
-                    elif config.GROUP_BY_CONTENT:
+                        # OBSAH SMI CAS PREHLASOVAT. Zabery focene s rozmyslem
+                        # z jednoho mista (zapad slunce, jaguar na strome) maji
+                        # mezi snimky desitky sekund, ale je to porad tentyz
+                        # zaber, ktery ma smysl porovnavat mezi sebou. Bez
+                        # tohoto by z kazdeho byla serie o jednom snimku - a
+                        # v takove serii neni co vybirat.
+                        if (config.GROUP_BY_CONTENT
+                                and config.BURST_MERGE_SIMILARITY > 0
+                                and gap <= config.BURST_MERGE_MAX_GAP):
+                            d = content.distance(prev_desc, desc, grid_weight=0.0)
+                            if d is not None and d <= config.BURST_MERGE_SIMILARITY:
+                                new_group = False
+                    elif config.GROUP_BY_CONTENT and gap >= config.BURST_CONTENT_MIN_GAP:
                         # Uvnitr serie se porovnava jen s predchozim snimkem
                         # a jen barevne slozeni, bez kompozice: zvire se po
                         # zaberu hybe, ale je to porad tentyz zaber.
+                        #
+                        # Pod BURST_CONTENT_MIN_GAP se obsah neptame vubec.
+                        # Kratka mezera je silny dukaz jedne akce spouste;
+                        # u dlouheho skla se obsah zaberu meni i mezi dvema
+                        # snimky jednu sekundu po sobe a deleni podle obsahu
+                        # by z davky delalo serie o jednom snimku.
                         d = content.distance(prev_desc, desc, grid_weight=0.0)
                         if d is not None and d > config.BURST_CONTENT_THRESHOLD:
                             new_group = True

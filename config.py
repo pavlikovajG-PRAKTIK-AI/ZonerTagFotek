@@ -216,6 +216,81 @@ BURST_GAP_SECONDS = 10.0
 # Prah 0.35 lezi mezi tim.
 BURST_CONTENT_THRESHOLD = 0.35
 
+# Pod touto mezerou obsah serii NEDELI - rozhoduje vylucne cas.
+#
+# PROC: kratka mezera je silny dukaz jedne akce spouste. Dva snimky jednu
+# sekundu po sobe jsou dávka, i kdyz se barevne slozeni lisi - u dlouheho
+# skla a pohybliveho zvirete se obsah zaberu meni rychle.
+#
+# Merene na 1356 snimcich z Pantanalu (import 20260722), kolik paru by
+# obsah pri prahu 0.35 rozdelil:
+#
+#   mezera      paru   rozdelilo by   median vzdalenosti
+#   do 2 s      1092       8 (  1 %)                0.035
+#   2 az 5 s      51      11 ( 22 %)                0.174
+#   5 az 10 s     36      12 ( 33 %)                0.283
+#   10 az 60 s    88      46 ( 52 %)                0.385
+#   nad 60 s      18      14 ( 78 %)                0.445
+#
+# Do 2 s dava histogram totez co cas (median 0.035, deli 1 %) - tam je
+# spolehlivy. V pasmu 2 az 10 s uz ale deli kazdy treti par, prestoze cas
+# rika "jedna davka", a z takoveho pruzeni vznikaji serie o jednom snimku,
+# ve kterych neni co vybirat.
+#
+# Hranice 5 s je proto kompromis: obsah si nechava slovo tam, kde je mezera
+# dost velka, aby mohlo jit o jiny zaber, a mlci tam, kde cas mluvi jasne.
+# Prah deleni se ZAMERNE nezvysuje - u vetsich mezer histogram funguje
+# dobre a jeho uvolneni by slucovalo skutecne odlisne subjekty.
+#
+# Merený dopad: serii 185 -> 169, z toho o jednom snimku 53 -> 42.
+BURST_CONTENT_MIN_GAP = 5.0
+
+# ---------------------------------------------------------------------------
+# Spojovani serii podle obsahu (proti seriim o jednom snimku)
+# ---------------------------------------------------------------------------
+#
+# PROBLEM, KTERY TO RESI
+#
+# Cas sam serii neurci. Zabery focene S ROZMYSLEM z jednoho mista - zapad
+# slunce ze stativu, jaguar na strome, cekani na pohyb - maji mezi snimky
+# desitky sekund. Pri deleni jen podle casu vznikne z kazdeho jeden snimek
+# ve vlastni serii, a v serii o jednom snimku neni co porovnavat: fotograf
+# proklikava desitky "serii" tehoz motivu a vyber nejlepsiho ztraci smysl.
+#
+# Merene na 1356 snimcich z Pantanalu (import 20260722): 66 z 215 serii
+# melo jediny snimek, tedy 31 %.
+#
+# JAK SE TO RESI
+#
+# Obsah smi cas PREHLASOVAT. Kdyz dva po sobe jdouci snimky vypadaji skoro
+# stejne, patri do jedne serie i pres delsi mezeru. Do teto verze umel obsah
+# serie jen ROZDELIT (BURST_CONTENT_THRESHOLD), nikdy spojit.
+#
+# Merene vzdalenosti na hranicich serii (jen barevne slozeni, bez kompozice):
+#
+#   mezera        prechodu   median vzdalenosti
+#   do 30 s            105                0.395
+#   30 az 120 s         64                0.589
+#   2 az 10 min         34                0.832
+#   nad 10 min          11                0.905
+#
+# Pri prahu 0.25 se spoji 41 prechodu z 214, a z toho 40 lezi do dvou minut -
+# prah tedy sam vybira skutecne podobne zabery, ne vzdalene snimky, ktere se
+# nahodou podobaji. Hodnota 0.25 zaroven odpovida dřívějšímu mereni "tentyz
+# zaber ma histogramovou vzdalenost do 0.24".
+#
+# ZVYSOVAT OPATRNE. Spojeni je silnejsi tvrzeni nez nespojeni: kdyz se do
+# jedne serie dostanou dva RUZNE zabery, vitezem se stane jen jeden a druhy
+# spadne mezi vyrazene. Zbytecne kliknuti navic je mensi skoda nez ztraceny
+# snimek. Nulou se spojovani vypne.
+BURST_MERGE_SIMILARITY = 0.25
+
+# Nejdelsi mezera, pres kterou se serie jeste spoji. Nad tim uz je to jina
+# situace, i kdyz se snimky podobaji - dve fotky oblohy s hodinovym odstupem
+# spolu nesouvisi. Stejna hodnota jako SCENE_GAP_SECONDS, takze se nikdy
+# nespojuje pres hranici sceny.
+BURST_MERGE_MAX_GAP = 180.0
+
 # Serie delsi nez tento pocet snimku se rozdeli, aby se v UI dala prochazet.
 MAX_BURST_SIZE = 40
 
